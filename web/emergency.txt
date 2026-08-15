@@ -1,0 +1,41 @@
+EMERGENCY INFORMATION
+=====================
+
+TEMPLATE — replace everything below with your club's real details before anyone
+relies on this. /911 prints this file as-is.
+
+If someone is seriously hurt, call emergency services FIRST. Do not wait for a
+lead, and do not use this bot as the way to summon help.
+
+Emergency services: <your local emergency number>
+Campus security:    <number>
+EDT front desk:     <number>
+
+Club contacts
+-------------
+Safety lead:        <name> — <phone>
+Faculty advisor:    <name> — <phone>
+Shop supervisor:    <name> — <phone>
+
+First aid
+---------
+Kit location:       <where>
+Eyewash station:    <where>
+Fire extinguisher:  <where>
+Nearest AED:        <where>
+
+Immediate actions
+-----------------
+1. Make the area safe — cut power at the disconnect if it is electrical.
+2. Call for help. Say the building, floor and room number.
+3. Send someone to the entrance to meet responders.
+4. Do not move an injured person unless they are in further danger.
+5. Once everyone is safe, notify the safety lead and faculty advisor.
+
+Specific hazards
+----------------
+Battery fire / thermal runaway: <procedure>
+Pressure vessel failure:        <procedure>
+Chemical spill:                 <procedure>
+
+After any incident, however minor, tell a lead the same day so it gets recorded.

@@ -1,0 +1,16 @@
+{
+  "name": "@club/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./helpers": "./helpers.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.2.1",
+    "dotenv": "^16.4.7"
+  }
+}

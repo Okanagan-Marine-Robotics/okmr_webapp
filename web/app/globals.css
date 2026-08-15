@@ -1,0 +1,89 @@
+/* Marine Robotics brand theme. Colors sampled from the club logo. */
+:root {
+  --navy: #1a3548;
+  --navy-2: #12283a;
+  --blue: #47a9eb;
+  --blue-deep: #2b81c4;
+  --ink: #17303f;
+  --muted: #5c6b76;
+  --line: #e3e9ee;
+  --bg: #f6f9fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--blue-deep);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+h1 {
+  color: var(--navy);
+  font-size: 1.55rem;
+  margin: 0.2rem 0 1rem;
+}
+h2 {
+  color: var(--navy);
+}
+
+/* Default button = brand pill. Components that set their own inline background
+   (the ✕ remove buttons) override this, so they keep their own colors. */
+button {
+  background: var(--blue-deep);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+button:hover {
+  background: var(--blue);
+}
+
+/* Branded top bar shown once signed in. */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: linear-gradient(180deg, var(--navy), var(--navy-2));
+  padding: 0.7rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 1.25rem;
+}
+.app-header .wordmark {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.app-header .wordmark b {
+  color: #fff;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+.app-header .wordmark span {
+  color: var(--blue);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* Big centered logo on the login screen. */
+.login-hero {
+  text-align: center;
+  padding: 2rem 1rem 0.5rem;
+}

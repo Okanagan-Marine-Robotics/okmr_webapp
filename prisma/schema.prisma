@@ -1,0 +1,231 @@
+// Single source of truth for the database.
+// Start on SQLite for zero-setup local dev. To move to Postgres later:
+//   1. change provider below to "postgresql"
+//   2. set DATABASE_URL to a postgres:// URL in .env
+//   3. run `npm run db:migrate`
+// Nothing in the app code changes — Prisma abstracts the difference.
+//
+// Note: SQLite does not support Prisma `enum` types, so the "enum-like" fields
+// (role, status, recurrence, type) are plain String with the allowed values
+// documented inline. On Postgres these can be promoted to real enums later.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// A club member. Created on first Discord login (web) or first command (bot).
+// discordId is the stable Discord snowflake — the shared identity between
+// the web app and the bot.
+model User {
+  id        String   @id @default(cuid())
+  discordId String   @unique
+  username  String
+  avatar    String?
+  email     String?
+  createdAt DateTime @default(now())
+
+  memberships   Membership[]
+  assignedTasks TaskAssignee[]
+  createdTasks  Task[]        @relation("TaskCreator")
+  tickets       Ticket[]
+  seen          Seen[]
+  toolLoans     ToolLoan[]
+  devLogs       DevLog[]
+}
+
+// A dev-journal entry. "note" is a one-liner from /devlog; "update" is a longer
+// entry from /progupdate that can carry files. Scoped to a channel's team like
+// tasks, so the web app can group them by subteam.
+model DevLog {
+  id        String   @id @default(cuid())
+  teamId    String
+  authorId  String
+  kind      String // "note" | "update"
+  title     String? // updates only
+  body      String
+  createdAt DateTime @default(now())
+
+  team        Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  author      User               @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  attachments DevLogAttachment[]
+
+  @@index([teamId, createdAt])
+}
+
+// A file attached to a DevLog. Downloaded off Discord (whose CDN links expire)
+// and stored locally under web/uploads, served through /uploads/<storedName>.
+model DevLogAttachment {
+  id          String  @id @default(cuid())
+  devLogId    String
+  storedName  String // filename on disk, also the URL segment
+  originalName String
+  contentType String?
+
+  devLog DevLog @relation(fields: [devLogId], references: [id], onDelete: Cascade)
+}
+
+// A tool signed out of the EDT, so it's clear which team currently has what.
+// A row with checkedInAt still null is a tool that's out.
+model ToolLoan {
+  id           String    @id @default(cuid())
+  tool         String
+  teamId       String
+  borrowerId   String
+  checkedOutAt DateTime  @default(now())
+  checkedInAt  DateTime?
+
+  team     Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  borrower User @relation(fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  // Drives both "what does this team still have out" and the /chkin autocomplete.
+  @@index([teamId, checkedInAt])
+}
+
+// Last time a user looked at a given tab, so the nav can show an unread dot
+// when something newer than seenAt exists. One row per user per tab key
+// ("tasks", "calendar", "forms:<type>"); a missing row means "never looked",
+// which makes everything count as new.
+model Seen {
+  id     String   @id @default(cuid())
+  userId String
+  key    String
+  seenAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+// A subteam (Mechanical, Elec, ...). Mapped 1:1 to a Discord channel so a
+// slash command run in that channel knows which team it belongs to.
+//
+// `parentId` points at the container this channel groups under: for a forum
+// post that's its forum, for a text channel that's its category. Discord treats
+// those as different things, but they play the same role here, so the Tasks and
+// Calendar pages can group by parent without caring which kind it is.
+model Team {
+  id               String   @id @default(cuid())
+  name             String
+  discordChannelId String   @unique
+  parentId         String?
+  createdAt        DateTime @default(now())
+
+  // SetNull, never Cascade: Task.teamId is required and cascades, so cascading
+  // here would silently bulk-delete tasks when one Team row is removed.
+  parent   Team?  @relation("TeamHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Team[] @relation("TeamHierarchy")
+
+  memberships Membership[]
+  tasks       Task[]
+  meetings    Meeting[]
+  tickets     Ticket[]
+  toolLoans   ToolLoan[]
+  devLogs     DevLog[]
+  config      ChannelConfig?
+
+  @@index([parentId])
+}
+
+// Per-channel settings for the scheduled "update message" the bot posts.
+// One row per Team (which is one Discord channel). Created/edited via /config.
+model ChannelConfig {
+  id     String @id @default(cuid())
+  teamId String @unique
+
+  // Which weekdays to post on, as comma-separated day numbers (0=Sun..6=Sat),
+  // e.g. "1,4" = Monday & Thursday. Empty string = never (updates paused).
+  updateDays   String  @default("")
+  updateHour   Int     @default(9) // 0-23, local server time
+  updateMinute Int     @default(0) // 0-59
+  pingAssignee Boolean @default(false) // also @mention assignees of due-soon tasks
+  lastSentAt   DateTime? // dedupe: don't post twice in the same scheduled slot
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+// Join table: which users belong to which teams, and their role.
+model Membership {
+  id     String @id @default(cuid())
+  userId String
+  teamId String
+  role   String @default("member") // "member" | "lead"
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+}
+
+// A task assigned to a team, optionally to one or more people, with a due date.
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  teamId      String
+  createdById String
+  dueDate     DateTime?
+  status      String    @default("open") // "open" | "done"
+  importance  String    @default("medium") // "light" | "medium" | "important" | "ultra"
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  team      Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  assignees TaskAssignee[]
+  createdBy User           @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([teamId, status])
+}
+
+// Join table: which users are assigned to a task (a task can have several).
+model TaskAssignee {
+  taskId String
+  userId String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+}
+
+// A meeting/event. Linked to a native Discord Scheduled Event via
+// discordEventId when one exists, so the two stay in sync.
+model Meeting {
+  id             String   @id @default(cuid())
+  teamId         String?
+  title          String
+  startsAt       DateTime
+  endsAt         DateTime?
+  location       String?
+  recurrence     String   @default("none") // "none" | "weekly" | "biweekly"
+  discordEventId String?  @unique
+  createdAt      DateTime @default(now())
+
+  team Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@index([startsAt])
+}
+
+// A submitted form: EDT space, vehicle, part order, machine-shop time, ...
+// The form catalogue lives in bot/src/lib/forms.ts; `type` is its id and
+// `details` holds that form's answers, so adding a new form needs no migration.
+model Ticket {
+  id          String    @id @default(cuid())
+  type        String // "edt_space" | "vehicle" | "part" | "machine_shop"
+  requesterId String
+  teamId      String? // channel the form was filed from; null if unknown
+  status      String    @default("open") // "open" | "approved" | "denied"
+  details     String // JSON blob of the form's answers
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  resolvedAt  DateTime?
+
+  requester User  @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  team      Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}

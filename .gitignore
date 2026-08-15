@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# env / secrets
+.env
+.env.local
+.env*.local
+
+# next.js
+web/.next/
+web/out/
+
+# builds
+bot/dist/
+**/*.tsbuildinfo
+
+# prisma sqlite dev database
+prisma/dev.db
+prisma/dev.db-journal
+prisma/*.db
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+
+# Dev-journal file uploads (runtime data, not source)
+web/uploads/

@@ -1,0 +1,27 @@
+EDT Space
+===========
+
+Blah blah
+
+Before you start
+----------------
+1. Confirm the hull interior is dry and free of tools.
+2. Check the O-ring seat for grit, hair and nicks.
+3. Have the torque wrench signed out (/chkout torque wrench).
+
+Procedure
+---------
+1. Seat the O-ring evenly, no twists.
+2. Fit the end cap by hand until flush.
+3. Tighten bolts in a star pattern, in two passes.
+4. Torque to spec on the final pass.
+5. Record the torque value in the build log.
+
+Before you sign off
+-------------------
+- Pressure test to the depth listed in the test plan.
+- Photograph the closed joint for the build log.
+- Return the torque wrench (/chkin torque wrench).
+
+If anything does not match this document, stop and ask a lead. Do not improvise
+on a pressure boundary.

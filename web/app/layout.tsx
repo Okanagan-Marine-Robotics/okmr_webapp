@@ -12,7 +12,8 @@ export const metadata = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   // Tabs are only useful once signed in; the login page shouldn't show them.
   const session = await auth();
-  const badges = session?.user?.id ? await getBadges(session.user.id) : NO_BADGES;
+  const userId = session?.user?.id;
+  const badges = userId ? await getBadges(userId) : NO_BADGES;
 
   return (
     <html lang="en">
@@ -26,7 +27,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           lineHeight: 1.5,
         }}
       >
-        {session?.user && (
+        {userId && (
           <>
             <header className="app-header">
               {/* eslint-disable-next-line @next/next/no-img-element */}

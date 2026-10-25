@@ -1,6 +1,6 @@
 import { EmbedBuilder, MessageFlags } from "discord.js";
 import type { ModalSubmitInteraction } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { FORM_PREFIX, findForm } from "../lib/forms.js";
 import type { FormDef } from "../lib/forms.js";
 import { resolveTeam, resolveUser } from "../lib/context.js";

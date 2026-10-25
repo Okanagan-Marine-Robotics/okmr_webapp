@@ -1,10 +1,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
-import { NO_BADGES, getBadges } from "../badges";
+import { getBadges } from "../badges";
 import {
   buildAncestorIndex,
   calendarForumSeenKey,
@@ -16,6 +16,7 @@ import {
 } from "../forums";
 import { fieldStyle, inputStyle } from "../formStyles";
 import { deleteScheduledEvent } from "../discord";
+import { clampText, safeInternalPath } from "../security";
 
 const RECURRING = ["weekly", "biweekly"];
 const RECURRENCE_OPTIONS = [
@@ -30,21 +31,32 @@ async function createMeeting(back: string, formData: FormData) {
   "use server";
 
   const session = await auth();
-  if (!session?.user) throw new Error("Not signed in.");
+  if (!session?.user?.id) throw new Error("Not signed in.");
 
-  const title = String(formData.get("title") ?? "").trim();
-  const whenRaw = String(formData.get("when") ?? "");
-  if (!title || !whenRaw) redirect(back);
+  const dest = safeInternalPath(back, "/calendar");
+  const title = clampText(formData.get("title"), 200);
+  const whenRaw = clampText(formData.get("when"), 64);
+  if (!title || !whenRaw) redirect(dest);
 
   const startsAt = new Date(whenRaw); // datetime-local, parsed as local time
-  if (Number.isNaN(startsAt.getTime())) redirect(back);
+  if (Number.isNaN(startsAt.getTime())) redirect(dest);
 
   const duration = Math.min(1440, Math.max(15, Number(formData.get("duration")) || 60));
   const endsAt = new Date(startsAt.getTime() + duration * 60_000);
 
-  const teamId = String(formData.get("teamId") ?? "") || null;
-  const location = String(formData.get("location") ?? "").trim() || null;
-  const recurrenceRaw = String(formData.get("recurrence") ?? "once");
+  const rawTeamId = clampText(formData.get("teamId"), 64);
+  let teamId: string | null = null;
+  if (rawTeamId) {
+    const team = await prisma.team.findUnique({
+      where: { id: rawTeamId },
+      select: { id: true },
+    });
+    if (!team) redirect(dest);
+    teamId = team.id;
+  }
+
+  const location = clampText(formData.get("location"), 200) || null;
+  const recurrenceRaw = clampText(formData.get("recurrence"), 32) || "once";
   const recurrence = RECURRING.includes(recurrenceRaw) ? recurrenceRaw : "once";
 
   await prisma.meeting.create({
@@ -52,7 +64,7 @@ async function createMeeting(back: string, formData: FormData) {
   });
 
   revalidatePath("/calendar");
-  redirect(back);
+  redirect(dest);
 }
 
 // Remove a meeting. If it came from /meet it carries a Discord event id, so we
@@ -61,16 +73,19 @@ async function deleteMeeting(id: string, back: string) {
   "use server";
 
   const session = await auth();
-  if (!session?.user) throw new Error("Not signed in.");
+  if (!session?.user?.id) throw new Error("Not signed in.");
 
-  const meeting = await prisma.meeting.findUnique({ where: { id } });
-  if (meeting?.discordEventId) {
-    await deleteScheduledEvent(meeting.discordEventId);
+  const dest = safeInternalPath(back, "/calendar");
+  if (typeof id === "string" && id.length > 0 && id.length <= 64) {
+    const meeting = await prisma.meeting.findUnique({ where: { id } });
+    if (meeting?.discordEventId) {
+      await deleteScheduledEvent(meeting.discordEventId);
+    }
+    await prisma.meeting.delete({ where: { id } }).catch(() => {});
   }
-  await prisma.meeting.delete({ where: { id } }).catch(() => {});
 
   revalidatePath("/calendar");
-  redirect(back);
+  redirect(dest);
 }
 
 const RECURRENCE_LABEL: Record<string, string> = {
@@ -113,14 +128,16 @@ export default async function CalendarPage({
   searchParams: Promise<{ forum?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user) redirect("/");
+  if (!session?.user?.id) redirect("/");
 
   const params = await searchParams;
   const activeForum = params.forum ?? "";
-  const currentUrl = activeForum ? `/calendar?forum=${activeForum}` : "/calendar";
+  const currentUrl = activeForum
+    ? `/calendar?forum=${encodeURIComponent(activeForum)}`
+    : "/calendar";
   const today = startOfToday();
 
-  const badges = session.user.id ? await getBadges(session.user.id) : NO_BADGES;
+  const badges = await getBadges(session.user.id);
 
   // Pills come from the full team list (not just teams that have meetings) so
   // Tasks and Calendar always show the same set.
@@ -179,7 +196,7 @@ export default async function CalendarPage({
   const pills = [
     { href: "/calendar", label: "All", active: !activeForum },
     ...posts.map((post) => ({
-      href: `/calendar?forum=${post.id}`,
+      href: `/calendar?forum=${encodeURIComponent(post.id)}`,
       label: post.name,
       active: activeForum === post.id,
       badge: badges.calendarForums[post.id],

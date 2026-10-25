@@ -5,7 +5,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import type { ModalSubmitInteraction } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { MEET_FORM_PREFIX } from "../lib/meetModal.js";
 import { resolveTeam } from "../lib/context.js";
 import { parseWhen } from "../lib/date.js";

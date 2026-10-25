@@ -1,8 +1,8 @@
 {
-  "name": "club-app",
+  "name": "okmr_webapp",
   "version": "0.1.0",
   "private": true,
-  "description": "Club web app + Discord bot over a shared database.",
+  "description": "UBC Okanagan Marine Robotics web app + Discord bot over a modular database & storage layer.",
   "workspaces": [
     "packages/*",
     "web",
@@ -12,9 +12,16 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
+    "db:d1:migrate:local": "wrangler d1 migrations apply okmr-db --local --config bot/wrangler.toml",
+    "db:d1:migrate:remote": "wrangler d1 migrations apply okmr-db --remote --config bot/wrangler.toml",
     "web:dev": "npm run dev --workspace web",
+    "web:build": "npm run build --workspace web",
+    "web:cf:build": "npm run cf:build --workspace web",
+    "web:cf:deploy": "npm run cf:deploy --workspace web",
     "bot:dev": "npm run dev --workspace bot",
-    "bot:deploy": "npm run deploy --workspace bot"
+    "bot:deploy": "npm run deploy --workspace bot",
+    "bot:cf:dev": "npm run cf:dev --workspace bot",
+    "bot:cf:deploy": "npm run cf:deploy --workspace bot"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"

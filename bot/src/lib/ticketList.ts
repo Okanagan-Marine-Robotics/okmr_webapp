@@ -1,8 +1,9 @@
 import { EmbedBuilder, MessageFlags } from "discord.js";
 import type { ChatInputCommandInteraction } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { findForm } from "./forms.js";
 import { formatLocalDateTime } from "./date.js";
+import { canUserViewChannel } from "./security.js";
 
 const STATUS_EMOJI: Record<string, string> = {
   open: "🕓",
@@ -96,6 +97,15 @@ export async function runFormsList(
     return;
   }
 
+  if (!canUserViewChannel(interaction, target)) {
+    await interaction.reply({
+      content: "You don't have permission to view that channel's forms.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  const crossChannel = target.id !== interaction.channelId;
+
   const label = "name" in target && target.name ? `#${target.name}` : "that channel";
   const team = await prisma.team.findUnique({ where: { discordChannelId: target.id } });
   if (!team) {
@@ -151,5 +161,8 @@ export async function runFormsList(
     embed.setFooter({ text: "Run /lsalforms to see every form for this channel." });
   }
 
-  await interaction.reply({ embeds: [embed] });
+  await interaction.reply({
+    embeds: [embed],
+    ...(crossChannel ? { flags: MessageFlags.Ephemeral } : {}),
+  });
 }

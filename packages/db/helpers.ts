@@ -1,4 +1,4 @@
-// Small reusable helpers shared by the bot commands (and later the web app)
+// Small reusable helpers shared by the bot commands and the web app
 // for the two things nearly every command needs: resolve the Discord user to a
 // User row, and resolve the channel the command ran in to a Team row.
 

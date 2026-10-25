@@ -1,14 +1,20 @@
-// The bot's background scheduler: once a minute it checks every channel's
-// /config schedule and posts the "update message" when a channel is due.
-// Uses the machine's local time (the Pi / your laptop).
+// The bot's background scheduler: checks every channel's /config schedule and
+// posts the "update message" when a channel is due.
+// Works both as a Cloudflare Worker Cron Trigger (`runDueUpdatesWithToken`) and
+// as a local Node interval (`startScheduler`).
+// Uses `@okmr_webapp/shared/timezone` (`America/Vancouver` by default) so
+// scheduled hours (e.g. 09:00) fire at the right local time even on UTC Workers.
 
 import type { Client } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
+import { getZonedParts, zonedWallClockToUtc } from "@okmr_webapp/shared/timezone";
 import { renderTaskBlock, isDueSoon, sortTasks } from "./taskList.js";
 import { describeDue } from "./date.js";
 import { csvToDays } from "./weekdays.js";
 import { formatMeetingLine } from "./meetings.js";
 import { formatTicketLine } from "./ticketList.js";
+import { postDiscordChannelMessage } from "./discordRest.js";
+import { env } from "../env.js";
 
 const CHECK_INTERVAL_MS = 60_000;
 // A form counts as "new this week" if it was submitted within this window.
@@ -29,9 +35,10 @@ export function startScheduler(client: Client): void {
   console.log("Update scheduler started (checks every minute).");
 }
 
-async function runDueUpdates(client: Client): Promise<void> {
+export async function runDueUpdates(clientOrToken?: Client | string): Promise<number> {
   const now = new Date();
-  const todayWeekday = now.getDay(); // 0=Sun..6=Sat
+  const zonedNow = getZonedParts(now);
+  const todayWeekday = zonedNow.weekday; // 0=Sun..6=Sat in club timezone
 
   // Only channels that have at least one scheduled day.
   const configs = await prisma.channelConfig.findMany({
@@ -39,29 +46,45 @@ async function runDueUpdates(client: Client): Promise<void> {
     include: { team: true },
   });
 
+  let sentCount = 0;
+
   for (const cfg of configs) {
     if (!csvToDays(cfg.updateDays).includes(todayWeekday)) continue;
 
-    const scheduledToday = new Date(now);
-    scheduledToday.setHours(cfg.updateHour, cfg.updateMinute, 0, 0);
-    if (now < scheduledToday) continue; // not time yet today
-    if (cfg.lastSentAt && cfg.lastSentAt >= scheduledToday) continue; // already sent
+    const scheduledTodayUtc = zonedWallClockToUtc(
+      zonedNow.year,
+      zonedNow.month,
+      zonedNow.day,
+      cfg.updateHour,
+      cfg.updateMinute,
+    );
+    if (now < scheduledTodayUtc) continue; // not time yet today
+    if (cfg.lastSentAt && cfg.lastSentAt >= scheduledTodayUtc) continue; // already sent
 
     try {
-      await sendChannelUpdate(client, cfg.team.discordChannelId, cfg.team.id, cfg.team.name, cfg.pingAssignee);
+      await sendChannelUpdate(
+        clientOrToken ?? env.botToken,
+        cfg.team.discordChannelId,
+        cfg.team.id,
+        cfg.team.name,
+        cfg.pingAssignee,
+      );
       await prisma.channelConfig.update({
         where: { id: cfg.id },
         data: { lastSentAt: now },
       });
+      sentCount++;
     } catch (e) {
       console.error(`Failed to post update for team ${cfg.team.name}:`, e);
     }
   }
+
+  return sentCount;
 }
 
-// Build and send one channel's update message.
+// Build and send one channel's update message via either REST token or discord.js Client.
 export async function sendChannelUpdate(
-  client: Client,
+  clientOrToken: Client | string,
   discordChannelId: string,
   teamId: string,
   teamName: string,
@@ -103,13 +126,38 @@ export async function sendChannelUpdate(
     content = content.slice(0, MAX_MESSAGE_CHARS - 1) + "…";
   }
 
-  const channel = await client.channels.fetch(discordChannelId).catch(() => null);
+  // Explicitly allowlist only the due-soon assignee user IDs so `<@id>` text in
+  // task/form titles cannot ping arbitrary club members.
+  const allowedMentionUserIds = pingAssignee
+    ? [
+        ...new Set(
+          sortTasks(tasks)
+            .filter(isDueSoon)
+            .flatMap((t) => t.assignees.map((a) => a.user.discordId))
+            .filter((id) => /^\d{15,22}$/.test(id)),
+        ),
+      ]
+    : [];
+
+  if (typeof clientOrToken === "string") {
+    await postDiscordChannelMessage(
+      discordChannelId,
+      {
+        content,
+        allowed_mentions: { parse: [], users: allowedMentionUserIds },
+      },
+      clientOrToken,
+    );
+    return;
+  }
+
+  const channel = await clientOrToken.channels.fetch(discordChannelId).catch(() => null);
   if (!channel || !channel.isTextBased() || !("send" in channel)) return;
 
   await channel.send({
     content,
-    // Only ping when the channel opted in; otherwise suppress all mentions.
-    allowedMentions: pingAssignee ? { parse: ["users"] } : { parse: [] },
+    // Only ping the specific due-soon assignees when the channel opted in; suppress everything else.
+    allowedMentions: { parse: [], users: allowedMentionUserIds },
   });
 }
 
@@ -145,7 +193,7 @@ function formsBlock(heading: string, forms: UpdateForm[]): string[] {
   return lines;
 }
 
-function buildUpdateContent(
+export function buildUpdateContent(
   teamName: string,
   tasks: UpdateTask[],
   meetings: UpdateMeeting[],

@@ -1,4 +1,9 @@
 import * as chrono from "chrono-node";
+import {
+  formatZonedDateTime,
+  getZonedParts,
+  zonedWallClockToUtc,
+} from "@okmr_webapp/shared/timezone";
 
 // Parse a due date from user input to a Date at local midnight (tasks track a
 // day, not a time). Returns null if empty or unparseable.
@@ -21,11 +26,10 @@ export function parseDueDate(input?: string | null): Date | null {
   return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0, 0);
 }
 
-// Format a Date as local "YYYY-MM-DD HH:MM" (all-local components, so it stays
-// consistent near midnight). Used to pre-fill the /mdmeet form's "When" field.
+// Format a Date as club-local "YYYY-MM-DD HH:MM" (uses CLUB_TIMEZONE so it stays
+// consistent on Cloudflare Workers in UTC as well as local dev).
 export function formatLocalDateTime(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
+  return formatZonedDateTime(date);
 }
 
 // Parse a meeting "when" string (natural-language date + time). Returns the
@@ -56,15 +60,21 @@ export function formatDate(date: Date | null | undefined): string {
   return date ? date.toISOString().slice(0, 10) : "—";
 }
 
-// Whole days from today (local midnight) to the given date. Positive = in the
+// Whole days from today (in club timezone) to the given date. Positive = in the
 // future, 0 = today, negative = overdue. Null if there's no date.
 export function daysUntil(date: Date | null | undefined): number | null {
   if (!date) return null;
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const target = new Date(date);
-  target.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - startOfToday.getTime()) / 86_400_000);
+  const nowParts = getZonedParts(new Date());
+  const startOfToday = zonedWallClockToUtc(nowParts.year, nowParts.month, nowParts.day, 0, 0);
+  const targetParts = getZonedParts(new Date(date));
+  const targetStart = zonedWallClockToUtc(
+    targetParts.year,
+    targetParts.month,
+    targetParts.day,
+    0,
+    0,
+  );
+  return Math.round((targetStart.getTime() - startOfToday.getTime()) / 86_400_000);
 }
 
 // Human phrasing for a due date, e.g. "due today", "due in 3 days",

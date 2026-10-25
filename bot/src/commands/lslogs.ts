@@ -1,7 +1,8 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import type { Command } from "../types.js";
 import { formatLocalDateTime } from "../lib/date.js";
+import { canUserViewChannel } from "../lib/security.js";
 
 const SHOWN = 10;
 
@@ -22,6 +23,15 @@ export const lslogs: Command = {
       });
       return;
     }
+
+    if (!canUserViewChannel(interaction, target)) {
+      await interaction.reply({
+        content: "You don't have permission to view that channel's dev journal.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const crossChannel = target.id !== interaction.channelId;
 
     const label = "name" in target && target.name ? `#${target.name}` : "that channel";
     const team = await prisma.team.findUnique({ where: { discordChannelId: target.id } });
@@ -70,6 +80,9 @@ export const lslogs: Command = {
       embed.setFooter({ text: `Showing ${SHOWN} of ${total}. See the full journal on the web app.` });
     }
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({
+      embeds: [embed],
+      ...(crossChannel ? { flags: MessageFlags.Ephemeral } : {}),
+    });
   },
 };

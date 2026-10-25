@@ -23,44 +23,40 @@ Both run on a **Raspberry Pi 3** at home, exposed to the internet via a **Cloudf
 |---|---|
 | Web app | **Live** at https://okmrwebapp.ca (valid HTTPS via Cloudflare Universal SSL) |
 | Discord bot | **Online**, on the **real** club server, avatar = Marine Robotics logo |
-| Database | SQLite on the Pi, **test data wiped** (fresh; 5 user logins kept) |
+| Database | SQLite on the Pi, **test data wiped** (fresh; user logins kept) |
 | Auto-start | All services `enabled` on boot + auto-restart on crash |
-| LAN access | Also reachable at `http://192.168.0.3:3000` on the club Wi-Fi |
+| Local bind | Bound to `127.0.0.1:3000` (all external & LAN access goes over HTTPS via Cloudflare Tunnel) |
 
 ---
 
 ## 3. Access
 
 ### The Raspberry Pi (the server)
-- **SSH:** `ssh -i ~/.ssh/id_ed25519 pi@192.168.0.3` — user `pi`, **passwordless sudo** enabled.
+- **SSH:** `ssh -i ~/.ssh/id_ed25519 <pi-user>@<pi-host>` (keep host IP, MAC, Wi-Fi SSID, and sudo details in the club's private password manager, not in Git).
 - Hardware: Raspberry Pi 3 Model B, **64-bit Raspberry Pi OS (Debian 13 trixie), aarch64**. Node 22 (system, `/usr/bin/node`).
-- IP `192.168.0.3` is **DHCP** — may change. Rediscover by MAC `B8:27:EB:07:FC:BA` (Raspberry Pi OUI) or hostname `raspberrypi.local`.
-- Wi-Fi: `TP-Link_4204` (2.4 GHz — Pi 3 can't do 5 GHz). Country code `CO`.
 
-> **⚠️ SSH from a new machine:** the private key lives on the original dev machine (`~/.ssh/id_ed25519`). To manage the Pi from a different computer you must either copy that key pair over, **or** generate a new key there and authorize it:
-> `ssh-copy-id -i ~/.ssh/id_ed25519.pub pi@192.168.0.3` (run in a **real terminal** — needs the `pi` password once; the in-app `!` shell has no TTY for the prompt).
+> **⚠️ SSH from a new machine:** authorize a new SSH public key via `ssh-copy-id` in an interactive terminal rather than copying private keys between machines.
 
 ### The code
-- On the Pi (the running deployment, source of truth): **`/home/pi/club-app`**
-- On the original dev machine: `/home/mateobravo/ClaudeCode/club-app`
-- To get the code on a new machine: `rsync -az --exclude node_modules --exclude .next pi@192.168.0.3:/home/pi/club-app/ ./club-app/` then `npm install`.
+- On the Pi (the running deployment, source of truth): **`<app-dir>`**
+- To deploy updates, sync `web/` or `bot/` (excluding `node_modules`, `.next`, `.env`, and `*.db*`) and restart the corresponding systemd service.
 
 ### Accounts / external services
 - **Domain:** `okmrwebapp.ca`, registered via **Cloudflare Registrar** (in the club's Cloudflare account).
-- **Cloudflare Tunnel:** name `club-app`, ID `607e0d5a-ff16-4804-97ec-f019e748ad39`. Config at `/home/pi/.cloudflared/config.yml` (ingress → `localhost:3000`). Cert at `/home/pi/.cloudflared/cert.pem`.
-- **Discord app:** client ID `1528184959066574951`. Real server (guild) ID `1534345322342518948`. OAuth login redirect required: `https://okmrwebapp.ca/api/auth/callback/discord`.
+- **Cloudflare Tunnel:** `cloudflared` tunnel routing `https://okmrwebapp.ca` → `http://127.0.0.1:3000`.
+- **Discord app:** OAuth login redirect required: `https://okmrwebapp.ca/api/auth/callback/discord`. Ensure **Public Bot** is toggled **OFF** in Discord Developer Portal → Bot.
 
-### Secrets (values NOT in this doc — read them on the Pi)
-All secrets live in **`/home/pi/club-app/.env`** (bot token, `AUTH_SECRET`, Discord client secret, Wi-Fi PSK is in NetworkManager). Read with `ssh ... 'cat /home/pi/club-app/.env'`. Do **not** paste secrets into shared docs.
+### Secrets (values NOT in this doc)
+All secrets live only in the server's `.env` (`chmod 600 .env`) or Cloudflare Worker secrets. Do **not** commit `.env`, database files (`*.db`), or backup snapshots (`*.db.bak*`) into Git.
 
 ---
 
 ## 4. The four systemd services (on the Pi)
 
 ```
-club-web        next start -p 3000   (web app; binds 0.0.0.0 so LAN works too)
-club-bot        tsx src/index.ts     (Discord bot)
-club-tunnel     cloudflared tunnel run  (Cloudflare tunnel → localhost:3000)
+club-web        next start -H 127.0.0.1 -p 3000  (loopback only; fronted by cloudflared)
+club-bot        tsx src/index.ts                 (Discord bot)
+club-tunnel     cloudflared tunnel run           (Cloudflare tunnel → 127.0.0.1:3000)
 club-powersave  unbinds USB/Ethernet on boot to reduce power draw (Wi-Fi is SDIO, unaffected)
 ```
 Unit files in `/etc/systemd/system/club-*.service`. Common commands:
@@ -101,8 +97,8 @@ journalctl -u club-bot -n 50 -o cat  # logs (persistent journald is enabled)
 - **`tsx -e` compiles as CommonJS → rejects top-level `await`.** For one-off scripts, put code in a `.mts` file, or use `.then()` and import `@club/db` first (that's what loads the root `.env`).
 - **The bot must be the ONLY instance on its token** — two running bots = every command fires twice. Only `club-bot` on the Pi should run it.
 - **`DATABASE_URL="file:./prisma/dev.db"`** is relative (Prisma resolves it against `prisma/schema.prisma` → `prisma/prisma/dev.db`). Portable; don't "fix" it to an absolute path.
-- **The local dev machine's `.env` still has the TEST guild ID** (`865495463343685643`); only the Pi's `.env` was switched to the real guild. Update the dev `.env` if doing local bot testing.
-- DB backup before the wipe is on the Pi: `prisma/prisma/dev.db.bak-before-wipe-20260805-051539`.
+- **Local dev `.env`:** ensure `DISCORD_GUILD_ID` matches the target server ID when testing locally, as both web sign-in and bot commands reject interactions from any other guild.
+- Keep database backups outside the Git working tree with `chmod 600` permissions.
 
 ---
 
@@ -110,15 +106,15 @@ journalctl -u club-bot -n 50 -o cat  # logs (persistent journald is enabled)
 
 **Web (after editing `web/`):**
 ```
-rsync -az --exclude node_modules --exclude .next web/ pi@192.168.0.3:/home/pi/club-app/web/
-ssh pi@192.168.0.3 'cd /home/pi/club-app && npm run build --workspace web && sudo systemctl restart club-web'
+rsync -az --exclude node_modules --exclude .next web/ <pi-user>@<pi-host>:<app-dir>/web/
+ssh <pi-user>@<pi-host> 'cd <app-dir> && npm run build --workspace web && sudo systemctl restart club-web'
 ```
 **Bot (after editing `bot/` — no build, tsx runs TS directly):**
 ```
-rsync -az --exclude node_modules bot/ pi@192.168.0.3:/home/pi/club-app/bot/
-ssh pi@192.168.0.3 'sudo systemctl restart club-bot'
+rsync -az --exclude node_modules bot/ <pi-user>@<pi-host>:<app-dir>/bot/
+ssh <pi-user>@<pi-host> 'sudo systemctl restart club-bot'
 ```
-**New/changed slash commands:** `ssh pi@192.168.0.3 'cd /home/pi/club-app && npm run bot:deploy'`
+**New/changed slash commands:** `ssh <pi-user>@<pi-host> 'cd <app-dir> && npm run bot:deploy'`
 **DB schema change:** edit `prisma/schema.prisma`, then on the Pi `npx prisma migrate deploy` + `npx prisma generate`, then rebuild/restart.
 
 **Health check:** `curl -s -o /dev/null -w "%{http_code}" https://okmrwebapp.ca/` (want 200/307), and `systemctl is-active club-web club-bot club-tunnel`.

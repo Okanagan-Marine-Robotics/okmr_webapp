@@ -1,10 +1,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
+import { IMPORTANCE_LEVELS, importanceMeta } from "@okmr_webapp/shared/importance";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
-import { NO_BADGES, getBadges } from "../badges";
+import { getBadges } from "../badges";
 import {
   buildAncestorIndex,
   forumPostsOf,
@@ -16,19 +17,18 @@ import {
   teamsById,
 } from "../forums";
 import { fieldStyle, inputStyle } from "../formStyles";
+import { clampText, parseIsoDateInput, safeInternalPath } from "../security";
 
-// Display info for each importance level. Mirrors the bot's importance.ts;
-// kept small and local since web and bot are separate workspaces.
-const IMPORTANCE: Record<string, { label: string; color: string; rank: number }> = {
-  ultra: { label: "Mega Ultra", color: "#e5484d", rank: 0 },
-  important: { label: "Important", color: "#f76808", rank: 1 },
-  medium: { label: "Medium", color: "#f5a623", rank: 2 },
-  light: { label: "Light", color: "#46a758", rank: 3 },
-};
-const IMPORTANCE_ORDER = ["ultra", "important", "medium", "light"];
+// Display info for each importance level, sourced from `@okmr_webapp/shared/importance`.
+const IMPORTANCE: Record<string, { label: string; color: string; rank: number }> =
+  Object.fromEntries(
+    IMPORTANCE_LEVELS.map((l) => [l.value, { label: l.webLabel, color: l.color, rank: l.rank }]),
+  );
+const IMPORTANCE_ORDER = IMPORTANCE_LEVELS.map((l) => l.value);
 
 function impInfo(value: string) {
-  return IMPORTANCE[value] ?? IMPORTANCE.medium;
+  const m = importanceMeta(value);
+  return { label: m.webLabel, color: m.color, rank: m.rank };
 }
 
 // Create a task from the add form. Fields mirror the bot's /task modal.
@@ -38,35 +38,52 @@ async function createTask(back: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Not signed in.");
 
-  const title = String(formData.get("title") ?? "").trim();
-  const teamId = String(formData.get("teamId") ?? "");
-  if (!title || !teamId) redirect(back);
+  const dest = safeInternalPath(back, "/tasks");
+  const title = clampText(formData.get("title"), 200);
+  const teamId = clampText(formData.get("teamId"), 64);
+  if (!title || !teamId) redirect(dest);
 
-  const importance = String(formData.get("importance") ?? "medium");
-  const notes = String(formData.get("notes") ?? "").trim() || null;
-  const dueRaw = String(formData.get("due") ?? "").trim();
-  // A date input gives YYYY-MM-DD; store local midnight like the bot does.
-  const dueDate = dueRaw ? new Date(`${dueRaw}T00:00:00`) : null;
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { id: true },
+  });
+  if (!team) redirect(dest);
 
-  const assigneeIds = formData
-    .getAll("assignees")
-    .map((v) => String(v))
-    .filter(Boolean);
+  const importance = clampText(formData.get("importance"), 32) || "medium";
+  const notes = clampText(formData.get("notes"), 2000) || null;
+  const dueDate = parseIsoDateInput(formData.get("due"));
+
+  const rawAssigneeIds = [
+    ...new Set(
+      formData
+        .getAll("assignees")
+        .map((v) => (typeof v === "string" ? v.trim() : ""))
+        .filter((v) => v.length > 0 && v.length <= 64),
+    ),
+  ].slice(0, 25);
+
+  const validUsers =
+    rawAssigneeIds.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: rawAssigneeIds } },
+          select: { id: true },
+        })
+      : [];
 
   await prisma.task.create({
     data: {
       title,
-      teamId,
+      teamId: team.id,
       createdById: session.user.id,
       importance: IMPORTANCE[importance] ? importance : "medium",
       notes,
       dueDate,
-      assignees: { create: assigneeIds.map((userId) => ({ userId })) },
+      assignees: { create: validUsers.map((u) => ({ userId: u.id })) },
     },
   });
 
   revalidatePath("/tasks");
-  redirect(back);
+  redirect(dest);
 }
 
 // "Remove" on the board = mark done, matching the bot's /cltask. The task
@@ -75,12 +92,15 @@ async function closeTask(id: string, back: string) {
   "use server";
 
   const session = await auth();
-  if (!session?.user) throw new Error("Not signed in.");
+  if (!session?.user?.id) throw new Error("Not signed in.");
 
-  await prisma.task.update({ where: { id }, data: { status: "done" } });
+  const dest = safeInternalPath(back, "/tasks");
+  if (typeof id === "string" && id.length > 0 && id.length <= 64) {
+    await prisma.task.updateMany({ where: { id, status: "open" }, data: { status: "done" } });
+  }
 
   revalidatePath("/tasks");
-  redirect(back);
+  redirect(dest);
 }
 
 export default async function TasksPage({
@@ -89,13 +109,15 @@ export default async function TasksPage({
   searchParams: Promise<{ forum?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user) redirect("/");
+  if (!session?.user?.id) redirect("/");
 
   const params = await searchParams;
   const activeForum = params.forum ?? "";
-  const currentUrl = activeForum ? `/tasks?forum=${activeForum}` : "/tasks";
+  const currentUrl = activeForum
+    ? `/tasks?forum=${encodeURIComponent(activeForum)}`
+    : "/tasks";
 
-  const badges = session.user.id ? await getBadges(session.user.id) : NO_BADGES;
+  const badges = await getBadges(session.user.id);
 
   const [teams, users] = await Promise.all([
     prisma.team.findMany({
@@ -143,7 +165,7 @@ export default async function TasksPage({
   const pills = [
     { href: "/tasks", label: "All", active: !activeForum },
     ...posts.map((post) => ({
-      href: `/tasks?forum=${post.id}`,
+      href: `/tasks?forum=${encodeURIComponent(post.id)}`,
       label: post.name,
       active: activeForum === post.id,
       badge: badges.taskForums[post.id],

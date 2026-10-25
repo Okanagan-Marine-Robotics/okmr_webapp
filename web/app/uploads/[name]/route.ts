@@ -1,79 +1,48 @@
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
-import type { ReadStream } from "node:fs";
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import {
+  getUpload,
+  SAFE_INLINE_CONTENT_TYPES,
+  SAFE_UPLOAD_NAME,
+} from "@okmr_webapp/storage";
 
-// Serves dev-journal attachments the bot downloaded into web/uploads. A route
-// (rather than the public/ folder) keeps serving explicit and lets us validate
-// the name, since it comes from the URL.
-const UPLOAD_DIR = resolve(process.cwd(), "uploads");
-
-// Stored names are "<uuid>.<ext>" — nothing else is allowed near the filesystem.
-const SAFE_NAME = /^[a-zA-Z0-9-]+(\.[a-z0-9]{1,8})?$/;
-
-const CONTENT_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-  pdf: "application/pdf",
-  txt: "text/plain; charset=utf-8",
-  md: "text/plain; charset=utf-8",
-};
-
+// Serves dev-journal attachments uploaded by the bot via `@okmr_webapp/storage`
+// (streams from Cloudflare R2 in production, or `web/uploads` in local dev).
+// Fenced strictly to authenticated OKMR Discord members and sandboxed against XSS.
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ name: string }> },
 ) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
+
   const { name } = await params;
-  if (!SAFE_NAME.test(name)) {
+  if (!SAFE_UPLOAD_NAME.test(name)) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const filePath = resolve(UPLOAD_DIR, name);
-  // Defence in depth: never serve anything outside the uploads dir.
-  if (!filePath.startsWith(`${UPLOAD_DIR}/`)) {
+  const uploaded = await getUpload(name);
+  if (!uploaded) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  let size: number;
-  try {
-    const info = await stat(filePath);
-    if (!info.isFile()) throw new Error("not a file");
-    size = info.size;
-  } catch {
-    return new NextResponse("Not found", { status: 404 });
-  }
+  const allowInline = SAFE_INLINE_CONTENT_TYPES.has(uploaded.contentType);
+  const contentType = allowInline ? uploaded.contentType : "application/octet-stream";
+  const disposition = allowInline
+    ? `inline; filename="${name}"`
+    : `attachment; filename="${name}"`;
 
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
-
-  const nodeStream = createReadStream(filePath);
-  const body = nodeToWebStream(nodeStream);
-
-  return new NextResponse(body, {
+  return new NextResponse(uploaded.body, {
     headers: {
       "Content-Type": contentType,
-      "Content-Length": String(size),
-      "Cache-Control": "private, max-age=3600",
-    },
-  });
-}
-
-function nodeToWebStream(stream: ReadStream): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    start(controller) {
-      stream.on("data", (chunk) =>
-        controller.enqueue(new Uint8Array(chunk as Buffer)),
-      );
-      stream.on("end", () => controller.close());
-      stream.on("error", (err) => controller.error(err));
-    },
-    cancel() {
-      stream.destroy();
+      "Content-Length": String(uploaded.size),
+      "Content-Disposition": disposition,
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy":
+        "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",
+      "Cache-Control": "private, no-store",
     },
   });
 }

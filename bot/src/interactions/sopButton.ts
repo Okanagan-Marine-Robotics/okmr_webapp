@@ -1,6 +1,6 @@
 import { EmbedBuilder, MessageFlags } from "discord.js";
 import type { ButtonInteraction } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { SOP_BUTTON_PREFIX } from "../commands/sop.js";
 import { sopTitle } from "../lib/sops.js";
 import { resolveTeam, resolveUser } from "../lib/context.js";

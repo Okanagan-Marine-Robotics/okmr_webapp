@@ -1,7 +1,8 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import type { Command } from "../types.js";
 import { formatMeetingLine } from "../lib/meetings.js";
+import { canUserViewChannel } from "../lib/security.js";
 
 export const lsmeet: Command = {
   data: new SlashCommandBuilder()
@@ -23,6 +24,15 @@ export const lsmeet: Command = {
       });
       return;
     }
+
+    if (!canUserViewChannel(interaction, target)) {
+      await interaction.reply({
+        content: "You don't have permission to view that channel's meetings.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    const crossChannel = target.id !== interaction.channelId;
 
     const label = "name" in target && target.name ? `#${target.name}` : "that channel";
     const team = await prisma.team.findUnique({
@@ -51,6 +61,9 @@ export const lsmeet: Command = {
     const embed = new EmbedBuilder()
       .setTitle(`📅 Upcoming meetings — ${team.name}`)
       .setDescription(meetings.map((m) => `• ${formatMeetingLine(m)}`).join("\n"));
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({
+      embeds: [embed],
+      ...(crossChannel ? { flags: MessageFlags.Ephemeral } : {}),
+    });
   },
 };

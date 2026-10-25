@@ -12,6 +12,7 @@ export function MarkSeen({ keys }: { keys: string[] }) {
   const signature = keys.join(",");
 
   useEffect(() => {
+    if (!signature) return;
     let active = true;
     void markSeen(signature.split(",")).then(() => {
       if (active) router.refresh();

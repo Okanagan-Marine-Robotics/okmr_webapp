@@ -1,4 +1,4 @@
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { FORM_TYPES, formSeenKey } from "./formTypes";
 import {
   buildAncestorIndex,

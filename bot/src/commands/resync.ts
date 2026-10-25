@@ -1,7 +1,8 @@
 import { ChannelType, MessageFlags, SlashCommandBuilder } from "discord.js";
 import type { GuildBasedChannel, NonThreadGuildBasedChannel } from "discord.js";
-import { getOrCreateParentTeam, getOrCreateTeamForChannel } from "@club/db/helpers";
+import { getOrCreateParentTeam, getOrCreateTeamForChannel } from "@okmr_webapp/db/helpers";
 import type { Command } from "../types.js";
+import { isAllowedGuild, isMemberLeadOrAdmin } from "../lib/security.js";
 
 // Channels a team can meaningfully hang off: forum posts and threads group
 // under their forum/parent channel, plain channels under their category.
@@ -21,9 +22,17 @@ export const resync: Command = {
 
   async execute(interaction) {
     const guild = interaction.guild;
-    if (!guild) {
+    if (!guild || !isAllowedGuild(interaction.guildId)) {
       await interaction.reply({
-        content: "Run this command in a server channel, not a DM.",
+        content: "Run this command inside the OKMR Discord server.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (!isMemberLeadOrAdmin(interaction)) {
+      await interaction.reply({
+        content: "Only club leads or server admins can run `/resync`.",
         flags: MessageFlags.Ephemeral,
       });
       return;

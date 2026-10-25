@@ -1,5 +1,5 @@
 import { MessageFlags, SlashCommandBuilder } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import type { Command } from "../types.js";
 import { resolveTeam } from "../lib/context.js";
 

@@ -5,19 +5,26 @@ node_modules/
 .env
 .env.local
 .env*.local
+.dev.vars
 
-# next.js
+# next.js / cloudflare builds
 web/.next/
 web/out/
+web/.open-next/
+.wrangler/
+**/.wrangler/
 
 # builds
 bot/dist/
 **/*.tsbuildinfo
 
-# prisma sqlite dev database
+# prisma sqlite databases & backups (including prisma/prisma/dev.db)
 prisma/dev.db
 prisma/dev.db-journal
 prisma/*.db
+prisma/**/*.db
+prisma/**/*.db-*
+**/*.db.bak*
 
 # logs
 *.log

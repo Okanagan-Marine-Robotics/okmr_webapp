@@ -1,4 +1,4 @@
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import type { AutocompleteInteraction } from "discord.js";
 
 // Discord caps an autocomplete response at 25 choices, and each name/value at

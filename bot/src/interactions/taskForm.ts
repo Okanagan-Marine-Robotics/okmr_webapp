@@ -1,6 +1,6 @@
 import { EmbedBuilder, MessageFlags } from "discord.js";
 import type { ModalSubmitInteraction } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { TASK_FORM_PREFIX } from "../lib/taskModal.js";
 import { resolveTeam, resolveUser } from "../lib/context.js";
 import { DEFAULT_IMPORTANCE, importanceMeta } from "../lib/importance.js";
@@ -66,7 +66,9 @@ export async function handleTaskForm(
 
   if (rest.startsWith("edit:")) {
     const taskId = rest.slice("edit:".length);
-    // Replace the whole assignee set with whatever the form now holds.
+    // Replace the whole assignee set with whatever the form now holds using
+    // D1-compatible sequential queries rather than a nested multi-write.
+    await prisma.taskAssignee.deleteMany({ where: { taskId } });
     const updated = await prisma.task.update({
       where: { id: taskId },
       data: {
@@ -74,9 +76,13 @@ export async function handleTaskForm(
         dueDate,
         notes: notes || null,
         importance,
-        assignees: { deleteMany: {}, create: assigneeRows },
       },
     });
+    for (const row of assigneeRows) {
+      await prisma.taskAssignee.create({
+        data: { taskId, userId: row.userId },
+      });
+    }
 
     await interaction.followUp({
       content: `Updated **${updated.title}** — assigned to ${assigneeLabel}.`,

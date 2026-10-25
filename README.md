@@ -3,8 +3,10 @@
 One system, two front-ends over a shared database:
 
 - **web/** — Next.js web app (task boards, calendar, files, tickets) with "Login with Discord".
-- **bot/** — Discord bot (`/task`, `/lstask`, `/mdtask`, `/fin`, `/config`, `/help`) that reads/writes the same database.
-- **packages/db/** — the shared Prisma client both use.
+- **bot/** — Discord bot (`/task`, `/lstask`, `/mdtask`, `/cltask`, `/config`, `/help`, etc.) that runs either as a **Cloudflare Worker** (HTTP Interactions + Cron Triggers) or as a standalone Node Gateway process.
+- **packages/db/** (`@okmr_webapp/db`) — dual-mode Prisma client supporting **Cloudflare D1** and **local SQLite**.
+- **packages/storage/** (`@okmr_webapp/storage`) — pluggable upload storage supporting **Cloudflare R2** and **local disk (`web/uploads/`)**.
+- **packages/shared/** (`@okmr_webapp/shared`) — shared SOPs, emergency info, form definitions, importance levels, and timezone helpers.
 - **prisma/schema.prisma** — the single source of truth for the database.
 
 See `../.claude/plans/how-do-i-make-moonlit-sphinx.md` for the full roadmap.
@@ -73,6 +75,39 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 nvm install --lts
 node --version
 ```
+
+## Deploy Modularly to Cloudflare Pages & Workers (Free Tier)
+
+1. **Create the shared Cloudflare D1 database and R2 bucket:**
+   ```bash
+   npx wrangler d1 create okmr-db
+   npx wrangler r2 bucket create okmr-uploads
+   ```
+   Copy the returned `database_id` into both `bot/wrangler.toml` and `web/wrangler.toml`, then apply the Prisma migrations to D1:
+   ```bash
+   npm run db:d1:migrate:remote
+   ```
+
+2. **Deploy the Discord Bot Worker (`okmr-bot`):**
+   ```bash
+   npx wrangler secret put DISCORD_BOT_TOKEN --config bot/wrangler.toml
+   npx wrangler secret put DISCORD_CLIENT_ID --config bot/wrangler.toml
+   npx wrangler secret put DISCORD_GUILD_ID --config bot/wrangler.toml
+   npx wrangler secret put DISCORD_PUBLIC_KEY --config bot/wrangler.toml
+   npm run bot:cf:deploy
+   ```
+   In the [Discord Developer Portal](https://discord.com/developers/applications) → **General Information** → **Interactions Endpoint URL**, paste `https://okmr-bot.<your-subdomain>.workers.dev/interactions`.
+
+3. **Deploy the Next.js Web App (`okmr-web`):**
+   ```bash
+   npx wrangler secret put DISCORD_CLIENT_ID --config web/wrangler.toml
+   npx wrangler secret put DISCORD_CLIENT_SECRET --config web/wrangler.toml
+   npx wrangler secret put DISCORD_BOT_TOKEN --config web/wrangler.toml
+   npx wrangler secret put DISCORD_GUILD_ID --config web/wrangler.toml
+   npx wrangler secret put AUTH_SECRET --config web/wrangler.toml
+   npx wrangler secret put AUTH_URL --config web/wrangler.toml
+   npm run web:cf:deploy
+   ```
 
 ## Deploy to the Raspberry Pi (Phase 0, step 3–4)
 

@@ -8,8 +8,9 @@ import {
   getOrCreateParentTeam,
   getOrCreateTeamForChannel,
   upsertUser,
-} from "@club/db/helpers";
-import type { Team, User } from "@club/db";
+} from "@okmr_webapp/db/helpers";
+import type { Team, User } from "@okmr_webapp/db";
+import { isAllowedGuild } from "./security.js";
 
 // Interactions that carry a channel + can reply: slash commands, form submits
 // and button clicks.
@@ -25,9 +26,9 @@ export async function resolveTeam(
   interaction: ChannelInteraction,
 ): Promise<Team | null> {
   const channel = interaction.channel;
-  if (!interaction.guildId || !channel || channel.isDMBased()) {
+  if (!isAllowedGuild(interaction.guildId) || !channel || channel.isDMBased()) {
     await interaction.reply({
-      content: "Run this command in a server channel, not a DM.",
+      content: "Run this command inside a channel on the OKMR Discord server.",
       ephemeral: true,
     });
     return null;

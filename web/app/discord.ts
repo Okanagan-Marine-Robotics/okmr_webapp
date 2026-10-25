@@ -2,17 +2,19 @@
 // into a "use client" component.
 //
 // The web app talks to Discord's REST API directly rather than going through
-// the bot process. The token reaches us because @club/db loads the root .env.
+// the bot process. The token reaches us via Cloudflare env vars or @okmr_webapp/db loading .env.
+
+import { getRuntimeEnv, isDiscordSnowflake } from "./discord-guild";
 
 // Delete a guild Scheduled Event, so removing a /meet meeting on the web also
 // clears it from Discord's Events tab (and the bot's sync listener won't
 // resurrect the row). Returns true if it's gone — including a 404, which means
 // it already was. Best-effort: callers delete the DB row regardless.
 export async function deleteScheduledEvent(eventId: string): Promise<boolean> {
-  const token = process.env.DISCORD_BOT_TOKEN;
-  const guildId = process.env.DISCORD_GUILD_ID;
-  if (!token || !guildId) {
-    console.warn("Discord token/guild not set — skipping scheduled-event delete.");
+  const token = getRuntimeEnv("DISCORD_BOT_TOKEN");
+  const guildId = getRuntimeEnv("DISCORD_GUILD_ID");
+  if (!token || !isDiscordSnowflake(guildId) || !isDiscordSnowflake(eventId)) {
+    console.warn("Discord token/guild/eventId invalid or not set — skipping scheduled-event delete.");
     return false;
   }
 
@@ -32,12 +34,20 @@ export async function deleteScheduledEvent(eventId: string): Promise<boolean> {
 
 // Works for forum posts and threads too — their id is just a channel id, and
 // Discord un-archives a thread when a message arrives.
-export async function postToChannel(channelId: string, content: string): Promise<boolean> {
-  const token = process.env.DISCORD_BOT_TOKEN;
-  if (!token) {
-    console.warn("DISCORD_BOT_TOKEN is not set — skipping the Discord notification.");
+// `mentionUserIds` explicitly allowlists the exact Discord user IDs permitted
+// to be pinged so `<@id>` inside user-submitted text cannot ping others.
+export async function postToChannel(
+  channelId: string,
+  content: string,
+  mentionUserIds: string[] = [],
+): Promise<boolean> {
+  const token = getRuntimeEnv("DISCORD_BOT_TOKEN");
+  if (!token || !isDiscordSnowflake(channelId)) {
+    console.warn("DISCORD_BOT_TOKEN or valid channelId not set — skipping Discord notification.");
     return false;
   }
+
+  const safeMentions = [...new Set(mentionUserIds.filter(isDiscordSnowflake))];
 
   try {
     const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
@@ -46,9 +56,10 @@ export async function postToChannel(channelId: string, content: string): Promise
         Authorization: `Bot ${token}`,
         "Content-Type": "application/json",
       },
-      // allowed_mentions lets us ping the requester but nothing else, so a
-      // request whose text happens to contain @everyone can't blast the server.
-      body: JSON.stringify({ content, allowed_mentions: { parse: ["users"] } }),
+      body: JSON.stringify({
+        content: content.slice(0, 2000),
+        allowed_mentions: { parse: [], users: safeMentions },
+      }),
     });
 
     if (!res.ok) {

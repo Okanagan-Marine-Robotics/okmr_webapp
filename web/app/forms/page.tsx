@@ -1,13 +1,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { FORM_TYPES, formSeenKey, typeLabel } from "../formTypes";
-import { NO_BADGES, getBadges } from "../badges";
+import { getBadges } from "../badges";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
 import { postToChannel } from "../discord";
 import { buildAncestorIndex, forumPostsOf, inForum } from "../forums";
+import { safeInternalPath } from "../security";
 
 // Build a /forms URL keeping whichever of the two filters aren't being changed.
 function formsUrl(type: string, forum: string) {
@@ -66,35 +67,56 @@ const VERDICT_TEXT: Record<Decision, string> = {
 };
 
 type Decision = "approved" | "denied" | "handled";
+const ALLOWED_DECISIONS = new Set<Decision>(["approved", "denied", "handled"]);
 
 async function resolveTicket(id: string, decision: Decision, back: string) {
   "use server";
 
   const session = await auth();
-  if (!session?.user) throw new Error("Not signed in.");
+  if (!session?.user?.id) throw new Error("Not signed in.");
+  if (!session.user.isLead) {
+    throw new Error("Only club leads or server admins can resolve requests.");
+  }
+  if (!ALLOWED_DECISIONS.has(decision)) {
+    throw new Error("Invalid decision.");
+  }
 
-  const ticket = await prisma.ticket.update({
-    where: { id },
+  const dest = safeInternalPath(back, "/forms");
+  if (typeof id !== "string" || id.length === 0 || id.length > 64) {
+    redirect(dest);
+  }
+
+  // Atomically transition from "open" so duplicate submissions cannot re-resolve
+  // an already decided request or spam Discord channel notifications.
+  const updated = await prisma.ticket.updateMany({
+    where: { id, status: "open" },
     data: { status: decision, resolvedAt: new Date() },
-    include: { requester: true, team: true },
   });
 
-  // Tell the channel the request came from. Best-effort: the decision is
-  // already saved, so a Discord failure must not surface as an error page.
-  if (ticket.team?.discordChannelId) {
-    const details = parseDetails(ticket.details);
-    const by = session.user.name ? ` by ${session.user.name}` : "";
-    const who = `<@${ticket.requester.discordId}>`;
-    await postToChannel(
-      ticket.team.discordChannelId,
-      `${VERDICT_TEXT[decision]}${by} — **${typeLabel(ticket.type)}**: ${summaryOf(details)} (raised by ${who})`,
-    );
+  if (updated.count > 0) {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id },
+      include: { requester: true, team: true },
+    });
+
+    // Tell the channel the request came from. Best-effort: the decision is
+    // already saved, so a Discord failure must not surface as an error page.
+    if (ticket?.team?.discordChannelId) {
+      const details = parseDetails(ticket.details);
+      const by = session.user.name ? ` by ${session.user.name}` : "";
+      const who = `<@${ticket.requester.discordId}>`;
+      await postToChannel(
+        ticket.team.discordChannelId,
+        `${VERDICT_TEXT[decision]}${by} — **${typeLabel(ticket.type)}**: ${summaryOf(details)} (raised by ${who})`,
+        [ticket.requester.discordId],
+      );
+    }
   }
 
   revalidatePath("/forms");
   // Redirecting (rather than relying on revalidation alone) guarantees the list
   // actually re-renders after a decision.
-  redirect(back);
+  redirect(dest);
 }
 
 export default async function FormsPage({
@@ -103,14 +125,15 @@ export default async function FormsPage({
   searchParams: Promise<{ type?: string; forum?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user) redirect("/");
+  if (!session?.user?.id) redirect("/");
+  const isLead = Boolean(session.user.isLead);
 
   const params = await searchParams;
   const activeType = params.type ?? "";
   const activeForum = params.forum ?? "";
   const currentUrl = formsUrl(activeType, activeForum);
 
-  const badges = session.user.id ? await getBadges(session.user.id) : NO_BADGES;
+  const badges = await getBadges(session.user.id);
 
   const teams = await prisma.team.findMany({
     select: { id: true, name: true, parentId: true },
@@ -174,9 +197,10 @@ export default async function FormsPage({
 
   const orderedGroups = [...groups.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
 
-  // Viewing "All" clears every form type; a subtab clears just its own.
-  const seenKeys = activeType
-    ? [formSeenKey(activeType)]
+  // Viewing "All" clears every form type; a known subtab clears just its own.
+  const matchedType = FORM_TYPES.find((t) => t.type === activeType)?.type;
+  const seenKeys = matchedType
+    ? [formSeenKey(matchedType)]
     : FORM_TYPES.map((t) => formSeenKey(t.type));
 
   const subtabs = [{ type: "", label: "All" }, ...FORM_TYPES];
@@ -302,27 +326,36 @@ export default async function FormsPage({
                       </p>
 
                       {/* An emergency isn't a request — there's nothing to
-                          approve or deny, only to close once it's dealt with. */}
-                      <div style={{ display: "flex", gap: "0.4rem" }}>
-                        {ticket.type === "emergency" ? (
-                          <form action={resolveTicket.bind(null, ticket.id, "handled", currentUrl)}>
-                            <button type="submit">Mark handled</button>
-                          </form>
-                        ) : (
-                          <>
+                          approve or deny, only to close once it's dealt with.
+                          Only club leads / server admins can resolve requests. */}
+                      {isLead ? (
+                        <div style={{ display: "flex", gap: "0.4rem" }}>
+                          {ticket.type === "emergency" ? (
                             <form
-                              action={resolveTicket.bind(null, ticket.id, "approved", currentUrl)}
+                              action={resolveTicket.bind(null, ticket.id, "handled", currentUrl)}
                             >
-                              <button type="submit">Approve</button>
+                              <button type="submit">Mark handled</button>
                             </form>
-                            <form
-                              action={resolveTicket.bind(null, ticket.id, "denied", currentUrl)}
-                            >
-                              <button type="submit">Deny</button>
-                            </form>
-                          </>
-                        )}
-                      </div>
+                          ) : (
+                            <>
+                              <form
+                                action={resolveTicket.bind(null, ticket.id, "approved", currentUrl)}
+                              >
+                                <button type="submit">Approve</button>
+                              </form>
+                              <form
+                                action={resolveTicket.bind(null, ticket.id, "denied", currentUrl)}
+                              >
+                                <button type="submit">Deny</button>
+                              </form>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <p style={{ color: "#777", fontSize: "0.82rem", margin: 0 }}>
+                          Awaiting lead review
+                        </p>
+                      )}
                     </article>
                   );
                 })}

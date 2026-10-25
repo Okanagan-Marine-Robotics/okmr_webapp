@@ -1,5 +1,5 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import type { Command } from "../types.js";
 import { resolveTeam, resolveUser } from "../lib/context.js";
 import { formatLocalDateTime } from "../lib/date.js";

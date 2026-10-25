@@ -1,5 +1,5 @@
 {
-  "name": "@club/db",
+  "name": "@okmr_webapp/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,8 @@
   "types": "./index.ts",
   "exports": {
     ".": "./index.ts",
-    "./helpers": "./helpers.ts"
+    "./helpers": "./helpers.ts",
+    "./d1-adapter": "./d1-adapter.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",

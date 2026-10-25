@@ -7,6 +7,7 @@ import { handleFormSubmit } from "./interactions/formSubmit.js";
 import { handleSopButton } from "./interactions/sopButton.js";
 import { startScheduler } from "./lib/schedule.js";
 import { registerScheduledEventSync } from "./events/scheduledEvents.js";
+import { isAllowedGuild } from "./lib/security.js";
 
 const client = new Client({
   // Guilds for slash commands; GuildScheduledEvents to receive event
@@ -25,6 +26,21 @@ client.once(Events.ClientReady, (c) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    // Fence all Gateway interactions strictly to the configured OKMR Discord server.
+    if (!isAllowedGuild(interaction.guildId)) {
+      if (interaction.isAutocomplete()) {
+        await interaction.respond([]).catch(() => {});
+      } else if (interaction.isRepliable()) {
+        await interaction
+          .reply({
+            content: "This bot is restricted to the OKMR Discord server.",
+            flags: MessageFlags.Ephemeral,
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       const command = commandsByName.get(interaction.commandName);
       if (!command) return;

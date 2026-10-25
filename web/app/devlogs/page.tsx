@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { prisma } from "@club/db";
+import { prisma } from "@okmr_webapp/db";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
-import { NO_BADGES, getBadges } from "../badges";
+import { getBadges } from "../badges";
 import {
   buildAncestorIndex,
   devlogForumSeenKey,
@@ -17,8 +17,15 @@ function formatStamp(date: Date) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+const SAFE_RASTER_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
 function isImage(contentType: string | null) {
-  return contentType?.startsWith("image/") ?? false;
+  return contentType !== null && SAFE_RASTER_IMAGE_TYPES.has(contentType);
 }
 
 export default async function DevlogsPage({
@@ -27,12 +34,12 @@ export default async function DevlogsPage({
   searchParams: Promise<{ forum?: string }>;
 }) {
   const session = await auth();
-  if (!session?.user) redirect("/");
+  if (!session?.user?.id) redirect("/");
 
   const params = await searchParams;
   const activeForum = params.forum ?? "";
 
-  const badges = session.user.id ? await getBadges(session.user.id) : NO_BADGES;
+  const badges = await getBadges(session.user.id);
 
   const teams = await prisma.team.findMany({
     select: { id: true, name: true, parentId: true },
@@ -82,7 +89,7 @@ export default async function DevlogsPage({
   const pills = [
     { href: "/devlogs", label: "All", active: !activeForum },
     ...posts.map((post) => ({
-      href: `/devlogs?forum=${post.id}`,
+      href: `/devlogs?forum=${encodeURIComponent(post.id)}`,
       label: post.name,
       active: activeForum === post.id,
       badge: badges.devlogForums[post.id],

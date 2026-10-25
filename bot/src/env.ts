@@ -5,7 +5,7 @@
 
 let localEnvLoaded = false;
 
-function isCloudflareWorkers(): boolean {
+export function isCloudflareWorkers(): boolean {
   return (
     typeof globalThis !== "undefined" &&
     ("WebSocketPair" in globalThis ||

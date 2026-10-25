@@ -62,7 +62,8 @@ const SECTIONS: { name: string; lines: string[] }[] = [
     name: "⚙️ Setup",
     lines: [
       "`/config [days] [time] [ping]` — this channel's update schedule, e.g. `days:Mon,Thu time:09:00`. `days:off` pauses it.",
-      "`/resync` — rebuild the website's channel list after adding a forum.",
+      "`/resync` — rebuild the website's channel list and sync combined roles.",
+      "`/syncroles` — auto-assign combined team roles (`AUV Software`, etc.) across members.",
       "`/help` — this menu.",
     ],
   },

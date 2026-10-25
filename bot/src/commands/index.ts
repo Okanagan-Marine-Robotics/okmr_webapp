@@ -20,6 +20,7 @@ import { devlog } from "./devlog.js";
 import { progupdate } from "./progupdate.js";
 import { lslogs } from "./lslogs.js";
 import { resync } from "./resync.js";
+import { syncroles } from "./syncroles.js";
 
 export const commands: Command[] = [
   help,
@@ -43,6 +44,7 @@ export const commands: Command[] = [
   progupdate,
   lslogs,
   resync,
+  syncroles,
 ];
 
 export const commandsByName = new Map<string, Command>(

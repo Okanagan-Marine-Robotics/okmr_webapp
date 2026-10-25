@@ -2,7 +2,13 @@ import { ChannelType, MessageFlags, SlashCommandBuilder } from "discord.js";
 import type { GuildBasedChannel, NonThreadGuildBasedChannel } from "discord.js";
 import { getOrCreateParentTeam, getOrCreateTeamForChannel } from "@okmr_webapp/db/helpers";
 import type { Command } from "../types.js";
+import { env, isCloudflareWorkers } from "../env.js";
 import { isAllowedGuild, isMemberLeadOrAdmin } from "../lib/security.js";
+import {
+  WORKER_MAX_ROLE_MUTATIONS,
+  formatRoleSyncBrief,
+  syncGuildCombinedRoles,
+} from "../lib/roleSync.js";
 
 // Channels a team can meaningfully hang off: forum posts and threads group
 // under their forum/parent channel, plain channels under their category.
@@ -85,10 +91,17 @@ export const resync: Command = {
       linked++;
     }
 
+    const roleSummary = await syncGuildCombinedRoles(guild.id, env.botToken, {
+      maxMutations: isCloudflareWorkers() ? WORKER_MAX_ROLE_MUTATIONS : undefined,
+    });
+
     await interaction.editReply(
       `Synced ${linked} channel${linked === 1 ? "" : "s"}${
         groups > 0 ? ` across ${new Set(all.map((c) => c.parentId).filter(Boolean)).size} group(s)` : ""
-      }. The website's Tasks and Calendar filters are up to date.`,
+      }. The website's Tasks and Calendar filters are up to date.\n${formatRoleSyncBrief(roleSummary)}`.slice(
+        0,
+        1990,
+      ),
     );
   },
 };

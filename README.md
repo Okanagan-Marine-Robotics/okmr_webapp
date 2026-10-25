@@ -25,7 +25,8 @@ See `../.claude/plans/how-do-i-make-moonlit-sphinx.md` for the full roadmap.
    - Under **Redirects**, add: `http://localhost:3000/api/auth/callback/discord`
      (and later your Cloudflare URL: `https://club.example.com/api/auth/callback/discord`).
 3. **Bot** tab → **Reset Token** → copy the **Bot Token**.
-4. Invite the bot to your server: **OAuth2 → URL Generator** → scopes `bot` + `applications.commands` → open the generated URL.
+   - Under **Privileged Gateway Intents**, toggle on **Server Members Intent** (used to iterate members and auto-assign combined subteam roles like `AUV Software`).
+4. Invite the bot to your server: **OAuth2 → URL Generator** → scopes `bot` + `applications.commands` → grant **Manage Roles** permission → open the generated URL. In Discord **Server Settings → Roles**, drag the bot's role **above** any combined subteam roles (`AUV Software`, `Hydrofoil Mechanical`, etc.) so it can assign and remove them.
 5. In Discord, enable **Developer Mode** (Settings → Advanced), then right-click your server → **Copy Server ID**.
 
 ### 2. Configure environment

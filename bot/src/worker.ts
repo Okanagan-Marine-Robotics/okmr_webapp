@@ -21,6 +21,10 @@ import { handleSopButton } from "./interactions/sopButton.js";
 import { runDueUpdates } from "./lib/schedule.js";
 import { syncGuildScheduledEventsViaRest } from "./events/scheduledEvents.js";
 import {
+  WORKER_MAX_ROLE_MUTATIONS,
+  syncGuildCombinedRoles,
+} from "./lib/roleSync.js";
+import {
   HttpInteractionAdapter,
   InteractionResponseType,
   InteractionType,
@@ -210,6 +214,13 @@ const worker = {
           ? syncGuildScheduledEventsViaRest(
               workerEnv.DISCORD_GUILD_ID,
               workerEnv.DISCORD_BOT_TOKEN,
+            )
+          : Promise.resolve(),
+        workerEnv.DISCORD_GUILD_ID && workerEnv.DISCORD_BOT_TOKEN
+          ? syncGuildCombinedRoles(
+              workerEnv.DISCORD_GUILD_ID,
+              workerEnv.DISCORD_BOT_TOKEN,
+              { maxMutations: WORKER_MAX_ROLE_MUTATIONS },
             )
           : Promise.resolve(),
       ]);

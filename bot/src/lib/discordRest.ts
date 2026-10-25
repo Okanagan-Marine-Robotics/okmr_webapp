@@ -34,6 +34,33 @@ export interface DiscordApiScheduledEvent {
   recurrence_rule?: DiscordApiRecurrenceRule | null;
 }
 
+export interface DiscordApiRole {
+  id: string;
+  name: string;
+  position: number;
+  managed?: boolean;
+  permissions?: string;
+}
+
+export interface DiscordApiGuildMember {
+  user?: {
+    id: string;
+    username?: string;
+    global_name?: string | null;
+    bot?: boolean;
+  };
+  roles: string[];
+  pending?: boolean;
+}
+
+export type GuildMembersPageResult =
+  | { ok: true; members: DiscordApiGuildMember[] }
+  | { ok: false; status: number; detail: string };
+
+export type RoleModifyResult =
+  | { ok: true }
+  | { ok: false; status: number; detail: string };
+
 function authHeaders(botToken: string, json = true): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: `Bot ${botToken}`,
@@ -239,4 +266,134 @@ export async function createFollowupInteractionMessage(
 ): Promise<void> {
   const url = `${DISCORD_API_BASE}/webhooks/${appId}/${interactionToken}`;
   await sendInteractionWebhookRequest(url, "POST", payload, files);
+}
+
+export async function fetchGuildRoles(
+  guildId: string,
+  botToken: string,
+): Promise<DiscordApiRole[] | null> {
+  try {
+    const res = await fetch(`${DISCORD_API_BASE}/guilds/${guildId}/roles`, {
+      headers: authHeaders(botToken, false),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data) ? (data as DiscordApiRole[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function listGuildMembersPage(
+  guildId: string,
+  botToken: string,
+  opts?: { limit?: number; after?: string },
+): Promise<GuildMembersPageResult> {
+  const limit = Math.min(Math.max(opts?.limit ?? 1000, 1), 1000);
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (opts?.after) {
+    params.set("after", opts.after);
+  }
+
+  try {
+    const res = await fetch(
+      `${DISCORD_API_BASE}/guilds/${guildId}/members?${params.toString()}`,
+      { headers: authHeaders(botToken, false) },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return { ok: false, status: res.status, detail };
+    }
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      return { ok: false, status: 502, detail: "Unexpected response shape" };
+    }
+    return { ok: true, members: data as DiscordApiGuildMember[] };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      detail: err instanceof Error ? err.message : "Network error",
+    };
+  }
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clampWaitMs(seconds: number, minMs: number, maxMs: number): number {
+  if (!Number.isFinite(seconds) || seconds <= 0) return minMs;
+  return Math.min(Math.max(Math.ceil(seconds * 1000), minMs), maxMs);
+}
+
+export async function modifyGuildMemberRole(
+  guildId: string,
+  userId: string,
+  roleId: string,
+  method: "PUT" | "DELETE",
+  botToken: string,
+  opts?: {
+    auditReason?: string;
+    sleepFn?: (ms: number) => Promise<void>;
+  },
+): Promise<RoleModifyResult> {
+  const sleep = opts?.sleepFn ?? defaultSleep;
+  const headers = authHeaders(botToken, false);
+  if (opts?.auditReason) {
+    // Discord expects URL-encoded UTF-8 up to 512 chars in X-Audit-Log-Reason.
+    headers["X-Audit-Log-Reason"] = encodeURIComponent(opts.auditReason.slice(0, 160)).slice(
+      0,
+      512,
+    );
+  }
+
+  const url = `${DISCORD_API_BASE}/guilds/${guildId}/members/${userId}/roles/${roleId}`;
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(url, { method, headers });
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        detail: err instanceof Error ? err.message : "Network error",
+      };
+    }
+
+    if (res.status === 429 && attempt < maxAttempts) {
+      let retrySeconds = Number.parseFloat(res.headers.get("Retry-After") ?? "");
+      if (!Number.isFinite(retrySeconds)) {
+        try {
+          const body = (await res.json()) as { retry_after?: number };
+          if (typeof body.retry_after === "number") retrySeconds = body.retry_after;
+        } catch {
+          // fall back to minimum backoff
+        }
+      }
+      await sleep(clampWaitMs(retrySeconds, 500, 15_000));
+      continue;
+    }
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return { ok: false, status: res.status, detail };
+    }
+
+    // Pace sequential writes cleanly when the Discord bucket reaches 0 remaining.
+    if (res.headers.get("X-RateLimit-Remaining") === "0") {
+      const resetAfterSec = Number.parseFloat(
+        res.headers.get("X-RateLimit-Reset-After") ?? "",
+      );
+      if (Number.isFinite(resetAfterSec) && resetAfterSec > 0) {
+        await sleep(clampWaitMs(resetAfterSec + 0.05, 50, 12_000));
+      }
+    }
+
+    return { ok: true };
+  }
+
+  return { ok: false, status: 429, detail: "Rate limited by Discord API" };
 }

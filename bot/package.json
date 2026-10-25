@@ -7,6 +7,7 @@
     "dev": "node --watch --import ./src/ts-loader.mjs src/index.ts",
     "start": "node --import ./src/ts-loader.mjs src/index.ts",
     "deploy": "node --import ./src/ts-loader.mjs src/deploy-commands.ts",
+    "test": "node --test --import ./src/ts-loader.mjs src/lib/roleSync.test.ts",
     "cf:dev": "wrangler dev",
     "cf:deploy": "wrangler deploy"
   },

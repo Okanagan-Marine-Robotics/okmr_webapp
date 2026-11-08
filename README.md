@@ -77,38 +77,15 @@ nvm install --lts
 node --version
 ```
 
-## Deploy Modularly to Cloudflare Pages & Workers (Free Tier)
+## Cloudflare Workers (prepared, not deployed)
 
-1. **Create the shared Cloudflare D1 database and R2 bucket:**
-   ```bash
-   npx wrangler d1 create okmr-db
-   npx wrangler r2 bucket create okmr-uploads
-   ```
-   Copy the returned `database_id` into both `bot/wrangler.toml` and `web/wrangler.toml`, then apply the Prisma migrations to D1:
-   ```bash
-   npm run db:d1:migrate:remote
-   ```
+The web app is a full-stack Next.js app, so it deploys as one Worker with static assets (`okmr-web`). Do not create a Pages project. `vinext check` reports `next-auth` as incompatible, so the Worker uses the OpenNext adapter already started in this repo.
 
-2. **Deploy the Discord Bot Worker (`okmr-bot`):**
-   ```bash
-   npx wrangler secret put DISCORD_BOT_TOKEN --config bot/wrangler.toml
-   npx wrangler secret put DISCORD_CLIENT_ID --config bot/wrangler.toml
-   npx wrangler secret put DISCORD_GUILD_ID --config bot/wrangler.toml
-   npx wrangler secret put DISCORD_PUBLIC_KEY --config bot/wrangler.toml
-   npm run bot:cf:deploy
-   ```
-   In the [Discord Developer Portal](https://discord.com/developers/applications) → **General Information** → **Interactions Endpoint URL**, paste `https://okmr-bot.<your-subdomain>.workers.dev/interactions`.
+The Worker is configured as the main script on `workers.dev` only. It has no routes and no custom domain. Do not attach `okmrwebapp.ca` or `okmarinerobotics.com`, and do not modify the existing Worker `okmarinerobotics-com`.
 
-3. **Deploy the Next.js Web App (`okmr-web`):**
-   ```bash
-   npx wrangler secret put DISCORD_CLIENT_ID --config web/wrangler.toml
-   npx wrangler secret put DISCORD_CLIENT_SECRET --config web/wrangler.toml
-   npx wrangler secret put DISCORD_BOT_TOKEN --config web/wrangler.toml
-   npx wrangler secret put DISCORD_GUILD_ID --config web/wrangler.toml
-   npx wrangler secret put AUTH_SECRET --config web/wrangler.toml
-   npx wrangler secret put AUTH_URL --config web/wrangler.toml
-   npm run web:cf:deploy
-   ```
+`npm run web:cf:check` confirms that guard. `npm run web:cf:dry-run` builds and packages without uploading. A real deploy, a remote D1 migration, and a bot deploy each require an explicit `OKMR_ALLOW_*=1` flag. A `workers.dev` URL is public until Worker-scoped Cloudflare Access is enabled; do not turn on account-wide Access.
+
+Secret names for the web Worker are `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `AUTH_SECRET`, and `AUTH_URL`. Optional names are `DISCORD_REQUIRED_ROLE_IDS` and `DISCORD_LEAD_ROLE_IDS`. `CLUB_TIMEZONE` is a plain var. The bot Worker also needs `DISCORD_PUBLIC_KEY`. Do not deploy the bot while the Pi process is using the same bot token.
 
 ## Deploy to the Raspberry Pi (Phase 0, step 3–4)
 

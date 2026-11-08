@@ -13,10 +13,12 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:d1:migrate:local": "wrangler d1 migrations apply okmr-db --local --config bot/wrangler.toml",
-    "db:d1:migrate:remote": "wrangler d1 migrations apply okmr-db --remote --config bot/wrangler.toml",
+    "db:d1:migrate:remote": "node scripts/cf-preflight.mjs --require OKMR_ALLOW_D1_REMOTE && wrangler d1 migrations apply okmr-db --remote --config bot/wrangler.toml",
     "web:dev": "npm run dev --workspace web",
     "web:build": "npm run build --workspace web",
+    "web:cf:check": "node scripts/cf-preflight.mjs",
     "web:cf:build": "npm run cf:build --workspace web",
+    "web:cf:dry-run": "node scripts/cf-preflight.mjs && npm run cf:build --workspace web && wrangler deploy --dry-run --config web/wrangler.toml --outdir /tmp/okmr-web-dry-run",
     "web:cf:deploy": "npm run cf:deploy --workspace web",
     "bot:dev": "npm run dev --workspace bot",
     "bot:deploy": "npm run deploy --workspace bot",
@@ -28,6 +30,7 @@
   },
   "devDependencies": {
     "prisma": "^6.2.1",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "wrangler": "^4.158.0"
   }
 }

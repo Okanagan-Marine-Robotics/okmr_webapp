@@ -1,7 +1,26 @@
+# Discord bot Worker. Not deployed by the web prepare step.
+# Do not add routes or custom domains. Do not deploy this while the Raspberry Pi
+# bot is running on the same token: Discord would deliver every command twice.
+# Deploy only with OKMR_ALLOW_BOT_DEPLOY=1 after the Pi process is stopped.
 name = "okmr-bot"
+account_id = "ac106c3c37d5d9077a632960175f4a52"
 main = "src/worker.ts"
 compatibility_date = "2025-02-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
 
 [vars]
 CLUB_TIMEZONE = "America/Vancouver"
@@ -11,16 +30,16 @@ CLUB_TIMEZONE = "America/Vancouver"
 [triggers]
 crons = ["*/5 * * * *"]
 
-# Shared Cloudflare D1 SQLite database (same database bound to okmr-web).
-# Run `npx wrangler d1 create okmr-db` and paste the database_id below.
+# Shared empty D1 database (same binding as okmr-web). Remote migrations are gated.
 [[d1_databases]]
 binding = "DB"
 database_name = "okmr-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "92805d40-9fe6-443e-89a4-ffafe0e0c209"
 migrations_dir = "../prisma/migrations"
+migrations_pattern = "../prisma/migrations/*/migration.sql"
 
-# Shared Cloudflare R2 bucket for /progupdate attachments (same bucket bound to okmr-web).
-# Run `npx wrangler r2 bucket create okmr-uploads` once in your Cloudflare account.
+# Same R2 bucket name as okmr-web. R2 is not enabled on the account yet; do not
+# create the bucket until that prerequisite is approved.
 [[r2_buckets]]
 binding = "UPLOADS_BUCKET"
 bucket_name = "okmr-uploads"

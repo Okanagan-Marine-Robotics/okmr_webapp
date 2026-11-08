@@ -9,7 +9,7 @@
     "deploy": "node --import ./src/ts-loader.mjs src/deploy-commands.ts",
     "test": "node --test --import ./src/ts-loader.mjs src/lib/roleSync.test.ts",
     "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy"
+    "cf:deploy": "node ../scripts/cf-preflight.mjs --require OKMR_ALLOW_BOT_DEPLOY && wrangler deploy"
   },
   "dependencies": {
     "@okmr_webapp/db": "*",

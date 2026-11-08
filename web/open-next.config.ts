@@ -1,8 +1,7 @@
-// OpenNext Cloudflare configuration for Next.js 15 deployment on Cloudflare Workers/Pages.
-// Used when running `npm run cf:build --workspace web` / `npm run cf:deploy --workspace web`.
+// OpenNext adapter for the existing Next.js app. vinext is the path Cloudflare
+// recommends for new apps, but `vinext check` reports next-auth as incompatible.
+// Defaults keep the incremental cache in-process ("dummy") so this config does
+// not create an R2 cache bucket. Authenticated pages read D1 on each request.
+import { defineCloudflareConfig } from "@opennextjs/cloudflare";
 
-const openNextConfig = {
-  default: {},
-};
-
-export default openNextConfig;
+export default defineCloudflareConfig();

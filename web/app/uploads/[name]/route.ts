@@ -4,10 +4,13 @@ import {
   getUpload,
   SAFE_INLINE_CONTENT_TYPES,
   SAFE_UPLOAD_NAME,
+  uploadsAreDisabled,
 } from "@okmr_webapp/storage";
 
-// Serves dev-journal attachments uploaded by the bot via `@okmr_webapp/storage`
-// (streams from Cloudflare R2 in production, or `web/uploads` in local dev).
+const UPLOADS_DISABLED = "File attachments are disabled on this deployment.";
+
+// Serves dev-journal attachments from local disk on Node.
+// The Cloudflare Worker has no R2 binding and fails closed here.
 // Fenced strictly to authenticated OKMR Discord members and sandboxed against XSS.
 export async function GET(
   _request: Request,
@@ -16,6 +19,16 @@ export async function GET(
   const session = await auth();
   if (!session?.user?.id) {
     return new NextResponse("Unauthorized", { status: 401 });
+  }
+
+  if (uploadsAreDisabled()) {
+    return new NextResponse(UPLOADS_DISABLED, {
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   }
 
   const { name } = await params;

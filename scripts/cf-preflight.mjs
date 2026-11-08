@@ -74,6 +74,9 @@ for (const config of configs) {
   if (/^(routes|route|pattern|custom_domain|zone_id|zone_name)\s*=/m.test(source) || /^\[\[routes\]\]/m.test(source)) {
     failures.push(`${config.file}: routes and custom domains are not allowed`);
   }
+  if (/\[\[r2_buckets\]\]|\br2_buckets\b|UPLOADS_BUCKET/.test(source)) {
+    failures.push(`${config.file}: R2 bindings are not allowed`);
+  }
   for (const zone of FORBIDDEN_ZONES) {
     if (source.includes(zone)) {
       failures.push(`${config.file}: ${zone} must not appear outside comments`);
@@ -113,6 +116,7 @@ console.log("- Worker okmr-web on workers.dev only; preview URLs off; no routes"
 console.log("- okmrwebapp.ca and okmarinerobotics.com are not attached");
 console.log("- okmarinerobotics-com is not a target");
 console.log("- D1 binding is the existing empty okmr-db; remote migrations stay gated");
+console.log("- No R2 binding; hosted uploads fail closed");
 console.log("- A workers.dev URL is public until Worker-scoped Access is enabled");
 if (requireFlag) {
   console.log(`- Approval ${requireFlag}=1 is set`);

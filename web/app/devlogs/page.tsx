@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@okmr_webapp/db";
+import { uploadsAreDisabled } from "@okmr_webapp/storage";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
 import { getBadges } from "../badges";
@@ -35,6 +36,7 @@ export default async function DevlogsPage({
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/");
+  const attachmentsDisabled = uploadsAreDisabled();
 
   const params = await searchParams;
   const activeForum = params.forum ?? "";
@@ -100,13 +102,16 @@ export default async function DevlogsPage({
     <main>
       <MarkSeen keys={seenKeys} />
       <h1>Dev journal</h1>
+      {attachmentsDisabled && (
+        <p>File attachments are disabled on this deployment.</p>
+      )}
 
       {posts.length > 0 && <PillNav pills={pills} />}
 
       {logs.length === 0 && (
         <p>
           No entries yet. Use <code>/devlog</code> for a quick note or <code>/progupdate</code>{" "}
-          for a longer update with files.
+          {attachmentsDisabled ? "for a longer update." : "for a longer update with files."}
         </p>
       )}
 
@@ -150,7 +155,14 @@ export default async function DevlogsPage({
                       {log.body}
                     </div>
 
-                    {log.attachments.length > 0 && (
+                    {log.attachments.length > 0 && attachmentsDisabled && (
+                      <p style={{ marginTop: "0.6rem", color: "#666", fontSize: "0.85rem" }}>
+                        File attachments are disabled on this deployment:{" "}
+                        {log.attachments.map((file) => file.originalName).join(", ")}
+                      </p>
+                    )}
+
+                    {log.attachments.length > 0 && !attachmentsDisabled && (
                       <div
                         style={{
                           display: "flex",

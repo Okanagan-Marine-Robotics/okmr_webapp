@@ -44,9 +44,5 @@ database_id = "92805d40-9fe6-443e-89a4-ffafe0e0c209"
 migrations_dir = "../prisma/migrations"
 migrations_pattern = "../prisma/migrations/*/migration.sql"
 
-# R2 is not enabled on the account yet. Create this bucket only after R2 is
-# turned on. Uploads fail closed until the binding exists; do not fall back to
-# a public r2.dev URL.
-[[r2_buckets]]
-binding = "UPLOADS_BUCKET"
-bucket_name = "okmr-uploads"
+# No R2 binding. File attachments are disabled in this Worker. Do not add an
+# r2_buckets block; enabling R2 is outside this zero-cost deploy.

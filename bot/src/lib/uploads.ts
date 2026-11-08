@@ -1,5 +1,11 @@
 import type { Attachment } from "discord.js";
-import { inferContentType, putUpload, safeExtension } from "@okmr_webapp/storage";
+import {
+  inferContentType,
+  putUpload,
+  safeExtension,
+  UploadsDisabledError,
+  uploadsAreDisabled,
+} from "@okmr_webapp/storage";
 
 // Discord's own limit is 25 MB on an unboosted server; cap here too so a big
 // file can't blow through Worker memory or storage limits.
@@ -74,12 +80,16 @@ async function readBoundedBytes(res: Response, maxBytes: number): Promise<Uint8A
   return combined;
 }
 
-// Download one Discord attachment and store it via `@okmr_webapp/storage`
-// (Cloudflare R2 in production, `web/uploads/` in local dev).
-// Returns null (rather than throwing) so one bad file doesn't sink a whole /progupdate.
+// Download one Discord attachment and store it on local disk.
+// The Cloudflare runtime has uploads disabled and throws UploadsDisabledError
+// before any download. Other failures return null so one bad file does not
+// sink a whole /progupdate.
 export async function storeAttachment(
   attachment: AttachmentLike,
 ): Promise<StoredFile | null> {
+  if (uploadsAreDisabled()) {
+    throw new UploadsDisabledError();
+  }
   if (attachment.size > MAX_BYTES || !isAllowedAttachmentUrl(attachment.url)) {
     return null;
   }

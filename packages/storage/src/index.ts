@@ -1,7 +1,7 @@
-// Pluggable blob storage for DevLog attachments (/progupdate).
-// Uses Cloudflare R2 (`env.UPLOADS_BUCKET`) when running on Cloudflare Pages
-// or Workers, and falls back to `web/uploads/` on the local disk during
-// standard local Node.js development.
+// Dev-journal attachment storage.
+// Node (local dev and the Raspberry Pi) uses `web/uploads/`.
+// The Cloudflare Worker deployment has no R2 binding. Uploads fail closed
+// there and never touch R2 or the local disk.
 
 export interface R2ObjectBodyLike {
   readonly body: ReadableStream<Uint8Array>;
@@ -186,42 +186,58 @@ export class LocalFsStorageAdapter implements StorageAdapter {
 
 const CLOUDFLARE_CONTEXT_SYMBOL = Symbol.for("__cloudflare-context__");
 
-const globalForStorage = globalThis as unknown as {
-  __okmrR2Bucket?: R2BucketLike;
-  __okmrStorageAdapter?: StorageAdapter;
-  [CLOUDFLARE_CONTEXT_SYMBOL]?: {
-    env?: {
-      UPLOADS_BUCKET?: R2BucketLike;
-      [key: string]: unknown;
-    };
-  };
-};
+const UPLOADS_DISABLED_MESSAGE = "File attachments are disabled on this deployment.";
 
-export function setR2Bucket(bucket: R2BucketLike | undefined | null): void {
-  if (bucket) {
-    globalForStorage.__okmrR2Bucket = bucket;
-    globalForStorage.__okmrStorageAdapter = new R2StorageAdapter(bucket);
+export class UploadsDisabledError extends Error {
+  readonly code = "uploads_disabled";
+
+  constructor() {
+    super(UPLOADS_DISABLED_MESSAGE);
+    this.name = "UploadsDisabledError";
   }
 }
 
-export function getStorageAdapter(): StorageAdapter {
-  const cfContextBucket = globalForStorage[CLOUDFLARE_CONTEXT_SYMBOL]?.env?.UPLOADS_BUCKET;
-  if (cfContextBucket) {
-    setR2Bucket(cfContextBucket);
+const globalForStorage = globalThis as unknown as {
+  __okmrLocalAdapter?: LocalFsStorageAdapter;
+  [CLOUDFLARE_CONTEXT_SYMBOL]?: { env?: Record<string, unknown> };
+};
+
+// True inside workerd (deployed Worker or `wrangler`/`opennext` preview).
+// Node `next dev`, `next start`, and the Pi bot stay false and keep disk storage.
+export function isCloudflareRuntime(): boolean {
+  if (globalForStorage[CLOUDFLARE_CONTEXT_SYMBOL]) return true;
+  if (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers") {
+    return true;
+  }
+  return typeof globalThis !== "undefined" && "WebSocketPair" in globalThis;
+}
+
+export function uploadsAreDisabled(): boolean {
+  return isCloudflareRuntime();
+}
+
+class UploadsDisabledAdapter implements StorageAdapter {
+  async putUpload(): Promise<void> {
+    throw new UploadsDisabledError();
   }
 
-  if (globalForStorage.__okmrStorageAdapter) {
-    return globalForStorage.__okmrStorageAdapter;
+  async getUpload(): Promise<StoredUploadObject | null> {
+    return null;
   }
-  if (globalForStorage.__okmrR2Bucket) {
-    globalForStorage.__okmrStorageAdapter = new R2StorageAdapter(
-      globalForStorage.__okmrR2Bucket,
-    );
-    return globalForStorage.__okmrStorageAdapter;
+}
+
+const uploadsDisabledAdapter = new UploadsDisabledAdapter();
+
+// Kept so existing callers compile. A bucket is never selected: this deployment
+// does not read or write R2.
+export function setR2Bucket(_bucket: R2BucketLike | undefined | null): void {}
+
+export function getStorageAdapter(): StorageAdapter {
+  if (uploadsAreDisabled()) return uploadsDisabledAdapter;
+  if (!globalForStorage.__okmrLocalAdapter) {
+    globalForStorage.__okmrLocalAdapter = new LocalFsStorageAdapter();
   }
-  const local = new LocalFsStorageAdapter();
-  globalForStorage.__okmrStorageAdapter = local;
-  return local;
+  return globalForStorage.__okmrLocalAdapter;
 }
 
 export async function putUpload(

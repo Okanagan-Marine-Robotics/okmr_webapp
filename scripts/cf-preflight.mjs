@@ -77,6 +77,15 @@ for (const config of configs) {
   if (/\[\[r2_buckets\]\]|\br2_buckets\b|UPLOADS_BUCKET/.test(source)) {
     failures.push(`${config.file}: R2 bindings are not allowed`);
   }
+  if (config.file === "web/wrangler.toml") {
+    const observabilityBlocks = source.match(/\[observability(?:\.[a-z]+)?\][\s\S]*?(?=\n\[|$)/g) ?? [];
+    const webLogsOff =
+      observabilityBlocks.length > 0 &&
+      observabilityBlocks.every((block) => /enabled\s*=\s*false/.test(block) && !/enabled\s*=\s*true/.test(block));
+    if (!webLogsOff) {
+      failures.push(`${config.file}: persistent observability must stay disabled`);
+    }
+  }
   for (const zone of FORBIDDEN_ZONES) {
     if (source.includes(zone)) {
       failures.push(`${config.file}: ${zone} must not appear outside comments`);

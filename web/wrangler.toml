@@ -19,17 +19,16 @@ preview_urls = false
 directory = ".open-next/assets"
 binding = "ASSETS"
 
+# Persistent logs and traces stay off, matching the live okmr-web Worker.
+# A Git deploy must not turn them on.
 [observability]
-enabled = true
+enabled = false
 
 [observability.logs]
-enabled = true
-invocation_logs = true
-head_sampling_rate = 1
+enabled = false
 
 [observability.traces]
-enabled = true
-head_sampling_rate = 1
+enabled = false
 
 [vars]
 CLUB_TIMEZONE = "America/Vancouver"

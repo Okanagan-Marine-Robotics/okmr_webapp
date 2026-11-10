@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "tsx --test auth-issuer.test.ts",
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "node ../scripts/cf-preflight.mjs && opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "cf:deploy": "node ../scripts/cf-preflight.mjs --require OKMR_ALLOW_WEB_DEPLOY && opennextjs-cloudflare build && opennextjs-cloudflare deploy"

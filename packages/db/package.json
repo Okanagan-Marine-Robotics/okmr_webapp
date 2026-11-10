@@ -10,6 +10,9 @@
     "./helpers": "./helpers.ts",
     "./d1-adapter": "./d1-adapter.ts"
   },
+  "scripts": {
+    "test": "tsx --test d1-adapter.test.ts"
+  },
   "dependencies": {
     "@prisma/client": "^6.2.1",
     "dotenv": "^16.4.7"

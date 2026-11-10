@@ -5,7 +5,7 @@ One system, two front-ends over a shared database:
 - **web/** — Next.js web app (task boards, calendar, files, tickets) with "Login with Discord".
 - **bot/** — Discord bot (`/task`, `/lstask`, `/mdtask`, `/cltask`, `/config`, `/help`, etc.) that runs either as a **Cloudflare Worker** (HTTP Interactions + Cron Triggers) or as a standalone Node Gateway process.
 - **packages/db/** (`@okmr_webapp/db`) — dual-mode Prisma client supporting **Cloudflare D1** and **local SQLite**.
-- **packages/storage/** (`@okmr_webapp/storage`) — pluggable upload storage supporting **Cloudflare R2** and **local disk (`web/uploads/`)**.
+- **packages/storage/** (`@okmr_webapp/storage`) — local disk (`web/uploads/`) on Node. The Cloudflare Worker has uploads disabled and does not use R2.
 - **packages/shared/** (`@okmr_webapp/shared`) — shared SOPs, emergency info, form definitions, importance levels, and timezone helpers.
 - **prisma/schema.prisma** — the single source of truth for the database.
 
@@ -84,6 +84,10 @@ The web app is a full-stack Next.js app, so it deploys as one Worker with static
 The Worker is configured as the main script on `workers.dev` only. It has no routes and no custom domain. Do not attach `okmrwebapp.ca` or `okmarinerobotics.com`, and do not modify the existing Worker `okmarinerobotics-com`.
 
 `npm run web:cf:check` confirms that guard. `npm run web:cf:dry-run` builds and packages without uploading. A real deploy, a remote D1 migration, and a bot deploy each require an explicit `OKMR_ALLOW_*=1` flag. A `workers.dev` URL is public until Worker-scoped Cloudflare Access is enabled; do not turn on account-wide Access.
+
+This configuration has no R2 binding. On the Worker, dev-journal files fail closed with “File attachments are disabled on this deployment.” Notes, tasks, calendar, forms, and Discord login still use D1. Local Node and the Pi keep saving files under `web/uploads/`.
+
+Publish only on the Workers Free plan, where exhausted request, CPU, log, and D1 quotas fail the operation. The Workers Paid plan bills overages, so it does not meet the zero-incremental-cost condition. Do not enable R2 or any other paid product for this deploy. Workers Free includes 100,000 requests/day and 10 ms CPU per request; D1 Free includes 5 million row reads/day, 100,000 row writes/day, and 5 GB. Workers Logs on Free include 200,000 events/day. Static asset requests are unlimited.
 
 Secret names for the web Worker are `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `AUTH_SECRET`, and `AUTH_URL`. Optional names are `DISCORD_REQUIRED_ROLE_IDS` and `DISCORD_LEAD_ROLE_IDS`. `CLUB_TIMEZONE` is a plain var. The bot Worker also needs `DISCORD_PUBLIC_KEY`. Do not deploy the bot while the Pi process is using the same bot token.
 

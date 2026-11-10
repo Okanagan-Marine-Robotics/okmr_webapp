@@ -38,8 +38,4 @@ database_id = "92805d40-9fe6-443e-89a4-ffafe0e0c209"
 migrations_dir = "../prisma/migrations"
 migrations_pattern = "../prisma/migrations/*/migration.sql"
 
-# Same R2 bucket name as okmr-web. R2 is not enabled on the account yet; do not
-# create the bucket until that prerequisite is approved.
-[[r2_buckets]]
-binding = "UPLOADS_BUCKET"
-bucket_name = "okmr-uploads"
+# No R2 binding. /progupdate text still saves; files fail closed.

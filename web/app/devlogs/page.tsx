@@ -9,6 +9,7 @@ import { getBadges } from "../badges";
 import {
   buildAncestorIndex,
   devlogForumSeenKey,
+  forumLabel,
   forumPostsOf,
   groupIdOf,
   inForum,
@@ -134,7 +135,7 @@ export default async function DevlogsPage({
     const isPost = postIdSet.has(log.team.id);
     const groupId = isPost ? groupIdOf(log.team) : TEXT_CHANNELS_ID;
     const groupName = isPost
-      ? (teamsById.get(groupId)?.name ?? log.team.name)
+      ? (forumLabel(groupId, teamsById) ?? log.team.name)
       : TEXT_CHANNELS_LABEL;
 
     let group = grouped.get(groupId);

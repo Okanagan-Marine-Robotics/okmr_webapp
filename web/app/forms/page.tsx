@@ -7,7 +7,7 @@ import { getBadges } from "../badges";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
 import { postToChannel } from "../discord";
-import { buildAncestorIndex, forumPostsOf, inForum } from "../forums";
+import { buildAncestorIndex, forumLabel, forumPostsOf, inForum } from "../forums";
 import { safeInternalPath } from "../security";
 
 // Build a /forms URL keeping whichever of the two filters aren't being changed.
@@ -179,7 +179,7 @@ export default async function FormsPage({
     const team = ticket.team;
     const groupId = team ? (team.parentId ?? team.id) : NO_TEAM;
     const groupName = team
-      ? (teamsById.get(team.parentId ?? team.id)?.name ?? team.name)
+      ? (forumLabel(team.parentId ?? team.id, teamsById) ?? team.name)
       : "No channel";
     const channelId = team?.id ?? NO_TEAM;
     const channelName = team?.name ?? "No channel";

@@ -9,6 +9,7 @@ import { getBadges } from "../badges";
 import {
   buildAncestorIndex,
   forumPostsOf,
+  forumLabel,
   groupIdOf,
   inForum,
   isForumPost,
@@ -156,7 +157,7 @@ export default async function TasksPage({
 
   // Forum display headers (h2) that have at least one post with open tasks.
   const shownGroups = [...channelsByGroup.keys()]
-    .map((id) => ({ id, name: byId.get(id)?.name ?? "Unknown" }))
+    .map((id) => ({ id, name: forumLabel(id, byId) ?? "Unknown" }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   // Opening a post pill (or "All") marks the posts you can now see as seen.

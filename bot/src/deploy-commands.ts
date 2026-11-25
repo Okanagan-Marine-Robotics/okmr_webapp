@@ -36,9 +36,14 @@ const AVATAR_MIME: Record<string, string> = {
 };
 
 // A profile failure (e.g. Discord's rename rate limit) is reported but doesn't
-// fail the run: the commands above are already registered.
-try {
-  const me = (await rest.get(Routes.user("@me"))) as { username: string };
+// fail the run: the commands above are already registered. Skipped when
+// registration failed or the token belongs to a different application, so a
+// wrong token can't rebrand some other bot.
+if (!process.exitCode) try {
+  const me = (await rest.get(Routes.user("@me"))) as { id: string; username: string };
+  if (me.id !== env.clientId) {
+    throw new Error("DISCORD_BOT_TOKEN does not belong to DISCORD_CLIENT_ID.");
+  }
   const patch: { username?: string; avatar?: string } = {};
   if (me.username !== BOT_PROFILE.name) patch.username = BOT_PROFILE.name;
   if (BOT_PROFILE.avatarPath) {

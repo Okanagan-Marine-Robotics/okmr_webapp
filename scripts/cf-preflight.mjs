@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Fail closed before any Cloudflare deploy or remote migration.
-// Confirms the web Worker stays on workers.dev and never claims okmrwebapp.ca
-// or the unrelated okmarinerobotics-com Worker.
+// Confirms the wrangler configs declare no routes or custom domains and never
+// target the unrelated okmarinerobotics-com Worker. okmrwebapp.ca is attached
+// to okmr-web in the Cloudflare dashboard, not in wrangler.toml.
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -129,8 +130,8 @@ if (failures.length > 0) {
 }
 
 console.log("Cloudflare preflight passed.");
-console.log("- Worker okmr-web on workers.dev only; preview URLs off; no routes");
-console.log("- okmrwebapp.ca and okmarinerobotics.com are not attached");
+console.log("- Workers keep workers.dev on; preview URLs off; no routes in config");
+console.log("- okmrwebapp.ca and okmarinerobotics.com are not claimed by the config");
 console.log("- okmarinerobotics-com is not a target");
 console.log("- D1 binding is okmr-db; remote migrations stay gated");
 console.log("- No R2 binding; uploads use the okmr-uploads KV namespace");

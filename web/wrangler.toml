@@ -1,10 +1,11 @@
 # Club web app on Cloudflare Workers with static assets.
 # This is the main Worker for the app. It is not a preview branch.
 #
-# Do not add routes, custom domains, or zone ids. okmrwebapp.ca stays on its
-# existing tunnel, and the unrelated Worker okmarinerobotics-com must not be
-# changed. After a future deploy the only hostname is
-# https://okmr-web.okmarinerobotics.workers.dev — and that URL is public until
+# Do not add routes, custom domains, or zone ids here. okmrwebapp.ca is attached
+# to this Worker as a custom domain in the Cloudflare dashboard, and the
+# unrelated Worker okmarinerobotics-com must not be changed. The app is served
+# at https://okmrwebapp.ca (AUTH_URL) and at
+# https://okmr-web.okmarinerobotics.workers.dev; both are public until
 # Worker-scoped Cloudflare Access is enabled. Do not enable account-wide Access.
 name = "okmr-web"
 account_id = "ac106c3c37d5d9077a632960175f4a52"

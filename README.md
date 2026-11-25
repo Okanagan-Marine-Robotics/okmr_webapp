@@ -81,7 +81,9 @@ node --version
 
 The web app is a full-stack Next.js app, so it deploys as one Worker with static assets (`okmr-web`). Do not create a Pages project. `vinext check` reports `next-auth` as incompatible, so the Worker uses the OpenNext adapter already started in this repo.
 
-The Worker is configured as the main script on `workers.dev` only. It has no routes and no custom domain. Do not attach `okmrwebapp.ca` or `okmarinerobotics.com`, and do not modify the existing Worker `okmarinerobotics-com`.
+The app is served at `https://okmrwebapp.ca`, attached to `okmr-web` as a custom domain in the Cloudflare dashboard, and at its `workers.dev` URL. `AUTH_URL` is `https://okmrwebapp.ca`, and the Discord application lists `https://okmrwebapp.ca/api/auth/callback/discord` as an OAuth redirect. The wrangler configs declare no routes or custom domains; keep it that way. Do not attach `okmarinerobotics.com`, and do not modify the existing Worker `okmarinerobotics-com`.
+
+Workers Builds deploys both Workers on every push to `main`. The `okmr-bot` build also runs `npm run bot:deploy`, using `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID` and `DISCORD_GUILD_ID` stored as build variables, so slash commands and the bot profile stay in sync.
 
 `npm run web:cf:check` confirms that guard. `npm run web:cf:dry-run` builds and packages without uploading. A real deploy, a remote D1 migration, and a bot deploy each require an explicit `OKMR_ALLOW_*=1` flag. A `workers.dev` URL is public until Worker-scoped Cloudflare Access is enabled; do not turn on account-wide Access.
 

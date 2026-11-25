@@ -5,7 +5,7 @@
 name = "okmr-bot"
 account_id = "ac106c3c37d5d9077a632960175f4a52"
 main = "src/worker.ts"
-compatibility_date = "2025-02-01"
+compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = false

@@ -95,7 +95,7 @@ export async function storeAttachment(
   }
 
   try {
-    const res = await fetch(attachment.url, { redirect: "error" });
+    const res = await fetch(attachment.url, { redirect: "manual" });
     if (!res.ok) return null;
     const bytes = await readBoundedBytes(res, MAX_BYTES);
     if (!bytes) return null;

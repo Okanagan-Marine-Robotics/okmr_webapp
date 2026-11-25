@@ -96,27 +96,31 @@ export default async function DevlogsPage({
 
   // Pills are forum posts, but /devlog and /progupdate also work in plain text
   // channels. "All" shows every entry; a pill narrows to that post.
-  const postIds = posts.map((p) => p.id);
+  const postIdSet = new Set(posts.map((p) => p.id));
   const textOnly = activeForum === TEXT_CHANNELS_ID;
-  const logs = await prisma.devLog.findMany({
-    where: textOnly
-      ? { teamId: { notIn: postIds } }
-      : activeForum
+  // Text-channel entries are picked out in memory: a NOT IN over every post id
+  // would exceed D1's 100 bound parameters once enough posts are synced.
+  const fetched = await prisma.devLog.findMany({
+    where:
+      activeForum && !textOnly
         ? { teamId: { in: postsInScope.map((p) => p.id) } }
         : undefined,
     include: { author: true, team: true, attachments: true },
     orderBy: { createdAt: "desc" },
   });
+  const logs = textOnly ? fetched.filter((log) => !postIdSet.has(log.teamId)) : fetched;
 
   const teamsById = teamsByIdOf(teams);
-  const postIdSet = new Set(postIds);
   const moveTargets = teamSelectGroups(teams);
   const currentUrl = activeForum
     ? `/devlogs?forum=${encodeURIComponent(activeForum)}`
     : "/devlogs";
   const hasTextEntries =
     textOnly ||
-    (await prisma.devLog.count({ where: { teamId: { notIn: postIds } } })) > 0;
+    (activeForum
+      ? await prisma.devLog.findMany({ select: { teamId: true }, distinct: ["teamId"] })
+      : logs
+    ).some((log) => !postIdSet.has(log.teamId));
 
   // Group by forum → channel like Tasks, but entries stay newest-first (the
   // query order) within each channel.

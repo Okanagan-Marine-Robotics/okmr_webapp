@@ -91,9 +91,16 @@ export function groupsOf<T extends TeamLike>(teams: T[]): T[] {
 
 // Forum posts arranged for a grouped <select>: one optgroup per forum (the
 // post's parent), the posts as its options. Only posts are selectable — the
-// forum is just a non-selectable heading, categories don't appear at all.
+// forum is just a non-selectable heading, prefixed with its category because
+// forum names repeat across categories (AUV / electrical, HYDROFOIL / electrical).
 export function teamSelectGroups(teams: TeamLike[]): { label: string; teams: TeamLike[] }[] {
-  const nameOf = new Map(teams.map((t) => [t.id, t.name]));
+  const byId = teamsById(teams);
+  const labelOf = (forumId: string) => {
+    const forum = byId.get(forumId);
+    if (!forum) return "Other";
+    const category = forum.parentId ? byId.get(forum.parentId)?.name : undefined;
+    return category ? `${category} / ${forum.name}` : forum.name;
+  };
   const byForum = new Map<string, TeamLike[]>();
   for (const post of forumPostsOf(teams)) {
     const forumId = groupIdOf(post); // a post's group is its forum
@@ -101,7 +108,7 @@ export function teamSelectGroups(teams: TeamLike[]): { label: string; teams: Tea
   }
   return [...byForum.entries()]
     .map(([forumId, posts]) => ({
-      label: nameOf.get(forumId) ?? "Other",
+      label: labelOf(forumId),
       teams: posts.sort((a, b) => a.name.localeCompare(b.name)),
     }))
     .sort((a, b) => a.label.localeCompare(b.label));

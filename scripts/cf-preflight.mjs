@@ -78,7 +78,11 @@ for (const config of configs) {
   if (/\[\[r2_buckets\]\]|\br2_buckets\b|UPLOADS_BUCKET/.test(source)) {
     failures.push(`${config.file}: R2 bindings are not allowed`);
   }
-  if (!/binding = "UPLOADS_KV"/.test(source) || !source.includes(`id = "${UPLOADS_KV_ID}"`)) {
+  const uploadsKv = source
+    .split(/^\[/m)
+    .filter((block) => block.startsWith("[kv_namespaces]]"))
+    .find((block) => /^binding = "UPLOADS_KV"\s*$/m.test(block));
+  if (!uploadsKv || !new RegExp(`^id = "${UPLOADS_KV_ID}"\\s*$`, "m").test(uploadsKv)) {
     failures.push(`${config.file}: UPLOADS_KV must bind the okmr-uploads KV namespace`);
   }
   if (config.file === "web/wrangler.toml") {

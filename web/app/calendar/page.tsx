@@ -139,8 +139,6 @@ export default async function CalendarPage({
 
   const badges = await getBadges(session.user.id);
 
-  // Pills come from the full team list (not just teams that have meetings) so
-  // Tasks and Calendar always show the same set.
   const [teams, meetings] = await Promise.all([
     prisma.team.findMany({ select: { id: true, name: true, parentId: true } }),
     // Upcoming one-offs, plus every recurring meeting regardless of its stored
@@ -193,14 +191,18 @@ export default async function CalendarPage({
 
   const seenKeys = postsInScope.map((post) => calendarForumSeenKey(post.id));
 
+  // Only posts with a meeting get a pill, so the row isn't a wall of empty channels.
+  const teamIdsWithMeetings = new Set(meetings.map((meeting) => meeting.teamId));
   const pills = [
     { href: "/calendar", label: "All", active: !activeForum },
-    ...posts.map((post) => ({
-      href: `/calendar?forum=${encodeURIComponent(post.id)}`,
-      label: post.name,
-      active: activeForum === post.id,
-      badge: badges.calendarForums[post.id],
-    })),
+    ...posts
+      .filter((post) => teamIdsWithMeetings.has(post.id) || activeForum === post.id)
+      .map((post) => ({
+        href: `/calendar?forum=${encodeURIComponent(post.id)}`,
+        label: post.name,
+        active: activeForum === post.id,
+        badge: badges.calendarForums[post.id],
+      })),
   ];
 
   return (

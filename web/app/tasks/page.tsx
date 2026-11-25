@@ -165,12 +165,15 @@ export default async function TasksPage({
 
   const pills = [
     { href: "/tasks", label: "All", active: !activeForum },
-    ...posts.map((post) => ({
-      href: `/tasks?forum=${encodeURIComponent(post.id)}`,
-      label: post.name,
-      active: activeForum === post.id,
-      badge: badges.taskForums[post.id],
-    })),
+    // Only posts with open tasks get a pill, so the row isn't a wall of empty channels.
+    ...posts
+      .filter((post) => post.tasks.length > 0 || activeForum === post.id)
+      .map((post) => ({
+        href: `/tasks?forum=${encodeURIComponent(post.id)}`,
+        label: post.name,
+        active: activeForum === post.id,
+        badge: badges.taskForums[post.id],
+      })),
   ];
 
   return (

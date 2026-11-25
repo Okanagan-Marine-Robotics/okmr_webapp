@@ -50,12 +50,10 @@ export default async function DevlogsPage({
   const posts = forumPostsOf(teams);
   const postsInScope = posts.filter((post) => inForum(post.id, activeForum, ancestors));
 
-  // Channels are forum posts; entries elsewhere (text channels) are hidden, so
-  // the query is always scoped to post ids (narrowed to one when a pill is on).
-  const allowedTeamIds = (activeForum ? postsInScope : posts).map((p) => p.id);
-
+  // Pills are forum posts, but /devlog and /progupdate also work in plain text
+  // channels. "All" shows every entry; a pill narrows to that post.
   const logs = await prisma.devLog.findMany({
-    where: { teamId: { in: allowedTeamIds } },
+    where: activeForum ? { teamId: { in: postsInScope.map((p) => p.id) } } : undefined,
     include: { author: true, team: true, attachments: true },
     orderBy: { createdAt: "desc" },
   });

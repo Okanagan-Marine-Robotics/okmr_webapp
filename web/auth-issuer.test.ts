@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as oauth from "oauth4webapi";
-import { buildBaseAuthConfig, DISCORD_OAUTH_ISSUER } from "./auth.config.ts";
+import { buildBaseAuthConfig, DISCORD_OAUTH_ISSUER } from "./auth.config";
 
 const discordAuthorizationServer = {
   issuer: DISCORD_OAUTH_ISSUER,

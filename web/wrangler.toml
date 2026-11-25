@@ -33,9 +33,8 @@ enabled = false
 [vars]
 CLUB_TIMEZONE = "America/Vancouver"
 
-# Existing empty D1 database (0 tables as of 2026-11-08). Do not apply remote
-# migrations until that step is explicitly approved. The Pi SQLite database is
-# not this database and is not migrated here.
+# Shared D1 database (also bound by okmr-bot). All prisma/migrations are
+# applied; new remote migrations need OKMR_ALLOW_D1_REMOTE=1.
 [[d1_databases]]
 binding = "DB"
 database_name = "okmr-db"
@@ -43,5 +42,8 @@ database_id = "92805d40-9fe6-443e-89a4-ffafe0e0c209"
 migrations_dir = "../prisma/migrations"
 migrations_pattern = "../prisma/migrations/*/migration.sql"
 
-# No R2 binding. File attachments are disabled in this Worker. Do not add an
-# r2_buckets block; enabling R2 is outside this zero-cost deploy.
+# Dev-journal attachments. Workers KV is on the free plan: 1 GB stored,
+# 1,000 writes/day, 25 MiB per value. Writes fail at the quota; nothing bills.
+[[kv_namespaces]]
+binding = "UPLOADS_KV"
+id = "5a172e41ffa64dfe9b02b0b9063a7080"

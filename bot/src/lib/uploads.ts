@@ -8,7 +8,7 @@ import {
 } from "@okmr_webapp/storage";
 
 // Discord's own limit is 25 MB on an unboosted server; cap here too so a big
-// file can't blow through Worker memory or storage limits.
+// file can't blow through Worker memory or the 25 MiB Workers KV value limit.
 const MAX_BYTES = 25 * 1024 * 1024;
 const ALLOWED_DISCORD_CDN_HOSTS = new Set([
   "cdn.discordapp.com",
@@ -80,9 +80,9 @@ async function readBoundedBytes(res: Response, maxBytes: number): Promise<Uint8A
   return combined;
 }
 
-// Download one Discord attachment and store it on local disk.
-// The Cloudflare runtime has uploads disabled and throws UploadsDisabledError
-// before any download. Other failures return null so one bad file does not
+// Download one Discord attachment and store it via `@okmr_webapp/storage`
+// (Workers KV on Cloudflare, `web/uploads/` on Node). A Worker without the
+// UPLOADS_KV binding throws UploadsDisabledError before any download. Other failures return null so one bad file does not
 // sink a whole /progupdate.
 export async function storeAttachment(
   attachment: AttachmentLike,

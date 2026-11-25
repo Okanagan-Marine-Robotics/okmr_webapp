@@ -9,6 +9,6 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test src/uploads-disabled.test.ts"
+    "test": "node --experimental-strip-types --test src/storage.test.ts"
   }
 }

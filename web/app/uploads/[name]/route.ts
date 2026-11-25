@@ -9,8 +9,8 @@ import {
 
 const UPLOADS_DISABLED = "File attachments are disabled on this deployment.";
 
-// Serves dev-journal attachments from local disk on Node.
-// The Cloudflare Worker has no R2 binding and fails closed here.
+// Serves dev-journal attachments from local disk on Node and from the
+// UPLOADS_KV namespace on Cloudflare (503 if the binding is missing).
 // Fenced strictly to authenticated OKMR Discord members and sandboxed against XSS.
 export async function GET(
   _request: Request,

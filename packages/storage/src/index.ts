@@ -1,28 +1,18 @@
 // Dev-journal attachment storage.
-// Node (local dev and the Raspberry Pi) uses `web/uploads/`.
-// The Cloudflare Worker deployment has no R2 binding. Uploads fail closed
-// there and never touch R2 or the local disk.
+// Node (local dev) uses `web/uploads/`. Cloudflare Workers use the
+// `UPLOADS_KV` Workers KV namespace, and fail closed when it is not bound.
 
-export interface R2ObjectBodyLike {
-  readonly body: ReadableStream<Uint8Array>;
-  readonly size: number;
-  readonly httpMetadata?: {
-    contentType?: string;
-  };
-}
-
-export interface R2BucketLike {
+// Subset of the Workers KV namespace API used for uploads.
+export interface KvNamespaceLike {
   put(
     key: string,
-    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null,
-    options?: {
-      httpMetadata?: {
-        contentType?: string;
-        cacheControl?: string;
-      };
-    },
+    value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
+    options?: { metadata?: unknown },
   ): Promise<unknown>;
-  get(key: string): Promise<R2ObjectBodyLike | null>;
+  getWithMetadata<Metadata = unknown>(
+    key: string,
+    options: { type: "stream" },
+  ): Promise<{ value: ReadableStream<Uint8Array> | null; metadata: Metadata | null }>;
 }
 
 export interface StoredUploadObject {
@@ -74,11 +64,15 @@ export function safeExtension(name: string): string {
   return ext ? `.${ext.slice(0, 8)}` : "";
 }
 
-export class R2StorageAdapter implements StorageAdapter {
-  private readonly bucket: R2BucketLike;
+interface KvUploadMetadata {
+  size: number;
+}
 
-  constructor(bucket: R2BucketLike) {
-    this.bucket = bucket;
+export class KvStorageAdapter implements StorageAdapter {
+  private readonly namespace: KvNamespaceLike;
+
+  constructor(namespace: KvNamespaceLike) {
+    this.namespace = namespace;
   }
 
   async putUpload(
@@ -89,22 +83,20 @@ export class R2StorageAdapter implements StorageAdapter {
     if (!SAFE_UPLOAD_NAME.test(storedName)) {
       throw new Error(`Invalid upload name: ${storedName}`);
     }
-    const resolvedType = inferContentType(storedName);
-    await this.bucket.put(storedName, bytes, {
-      httpMetadata: {
-        contentType: resolvedType,
-        cacheControl: "private, no-store",
-      },
-    });
+    const metadata: KvUploadMetadata = { size: bytes.byteLength };
+    await this.namespace.put(storedName, bytes, { metadata });
   }
 
   async getUpload(storedName: string): Promise<StoredUploadObject | null> {
     if (!SAFE_UPLOAD_NAME.test(storedName)) return null;
-    const obj = await this.bucket.get(storedName);
-    if (!obj) return null;
+    const { value, metadata } = await this.namespace.getWithMetadata<KvUploadMetadata>(
+      storedName,
+      { type: "stream" },
+    );
+    if (!value || typeof metadata?.size !== "number") return null;
     return {
-      body: obj.body,
-      size: obj.size,
+      body: value,
+      size: metadata.size,
       contentType: inferContentType(storedName),
     };
   }
@@ -198,12 +190,14 @@ export class UploadsDisabledError extends Error {
 }
 
 const globalForStorage = globalThis as unknown as {
+  __okmrUploadsKv?: KvNamespaceLike;
+  __okmrKvAdapter?: { namespace: KvNamespaceLike; adapter: KvStorageAdapter };
   __okmrLocalAdapter?: LocalFsStorageAdapter;
-  [CLOUDFLARE_CONTEXT_SYMBOL]?: { env?: Record<string, unknown> };
+  [CLOUDFLARE_CONTEXT_SYMBOL]?: { env?: { UPLOADS_KV?: KvNamespaceLike } };
 };
 
 // True inside workerd (deployed Worker or `wrangler`/`opennext` preview).
-// Node `next dev`, `next start`, and the Pi bot stay false and keep disk storage.
+// Node `next dev`, `next start`, and the Node bot stay false and use disk storage.
 export function isCloudflareRuntime(): boolean {
   if (globalForStorage[CLOUDFLARE_CONTEXT_SYMBOL]) return true;
   if (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers") {
@@ -212,8 +206,21 @@ export function isCloudflareRuntime(): boolean {
   return typeof globalThis !== "undefined" && "WebSocketPair" in globalThis;
 }
 
+// Explicit binding for Workers that are not OpenNext (the bot Worker).
+export function setUploadsKv(namespace: KvNamespaceLike | undefined | null): void {
+  if (namespace) globalForStorage.__okmrUploadsKv = namespace;
+}
+
+function uploadsKv(): KvNamespaceLike | undefined {
+  return (
+    globalForStorage[CLOUDFLARE_CONTEXT_SYMBOL]?.env?.UPLOADS_KV ??
+    globalForStorage.__okmrUploadsKv
+  );
+}
+
+// On Cloudflare, uploads need the UPLOADS_KV binding and fail closed without it.
 export function uploadsAreDisabled(): boolean {
-  return isCloudflareRuntime();
+  return isCloudflareRuntime() && !uploadsKv();
 }
 
 class UploadsDisabledAdapter implements StorageAdapter {
@@ -228,12 +235,16 @@ class UploadsDisabledAdapter implements StorageAdapter {
 
 const uploadsDisabledAdapter = new UploadsDisabledAdapter();
 
-// Kept so existing callers compile. A bucket is never selected: this deployment
-// does not read or write R2.
-export function setR2Bucket(_bucket: R2BucketLike | undefined | null): void {}
-
 export function getStorageAdapter(): StorageAdapter {
-  if (uploadsAreDisabled()) return uploadsDisabledAdapter;
+  if (isCloudflareRuntime()) {
+    const namespace = uploadsKv();
+    if (!namespace) return uploadsDisabledAdapter;
+    const cached = globalForStorage.__okmrKvAdapter;
+    if (cached?.namespace === namespace) return cached.adapter;
+    const adapter = new KvStorageAdapter(namespace);
+    globalForStorage.__okmrKvAdapter = { namespace, adapter };
+    return adapter;
+  }
   if (!globalForStorage.__okmrLocalAdapter) {
     globalForStorage.__okmrLocalAdapter = new LocalFsStorageAdapter();
   }

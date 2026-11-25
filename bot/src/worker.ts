@@ -12,7 +12,7 @@ import type {
 } from "discord.js";
 import { MessageFlags } from "discord.js";
 import { setD1Database, type D1DatabaseLike } from "@okmr_webapp/db";
-import { setR2Bucket, type R2BucketLike } from "@okmr_webapp/storage";
+import { setUploadsKv, type KvNamespaceLike } from "@okmr_webapp/storage";
 import { commandsByName } from "./commands/index.js";
 import { handleTaskForm } from "./interactions/taskForm.js";
 import { handleMeetForm } from "./interactions/meetForm.js";
@@ -34,7 +34,7 @@ import {
 
 export interface BotWorkerEnv {
   DB?: D1DatabaseLike;
-  UPLOADS_BUCKET?: R2BucketLike;
+  UPLOADS_KV?: KvNamespaceLike;
   DISCORD_BOT_TOKEN: string;
   DISCORD_CLIENT_ID: string;
   DISCORD_GUILD_ID: string;
@@ -56,9 +56,7 @@ function configureWorkerBindings(workerEnv: BotWorkerEnv): void {
   if (workerEnv.DB) {
     setD1Database(workerEnv.DB);
   }
-  if (workerEnv.UPLOADS_BUCKET) {
-    setR2Bucket(workerEnv.UPLOADS_BUCKET);
-  }
+  setUploadsKv(workerEnv.UPLOADS_KV);
   if (typeof process !== "undefined" && process.env) {
     if (workerEnv.DISCORD_BOT_TOKEN) process.env.DISCORD_BOT_TOKEN = workerEnv.DISCORD_BOT_TOKEN;
     if (workerEnv.DISCORD_CLIENT_ID) process.env.DISCORD_CLIENT_ID = workerEnv.DISCORD_CLIENT_ID;

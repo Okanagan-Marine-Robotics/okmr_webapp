@@ -5,7 +5,7 @@ One system, two front-ends over a shared database:
 - **web/** — Next.js web app (task boards, calendar, files, tickets) with "Login with Discord".
 - **bot/** — Discord bot (`/task`, `/lstask`, `/mdtask`, `/cltask`, `/config`, `/help`, etc.) that runs either as a **Cloudflare Worker** (HTTP Interactions + Cron Triggers) or as a standalone Node Gateway process.
 - **packages/db/** (`@okmr_webapp/db`) — dual-mode Prisma client supporting **Cloudflare D1** and **local SQLite**.
-- **packages/storage/** (`@okmr_webapp/storage`) — pluggable upload storage supporting **Cloudflare R2** and **local disk (`web/uploads/`)**.
+- **packages/storage/** (`@okmr_webapp/storage`) — local disk (`web/uploads/`) on Node, the `UPLOADS_KV` Workers KV namespace on Cloudflare.
 - **packages/shared/** (`@okmr_webapp/shared`) — shared SOPs, emergency info, form definitions, importance levels, and timezone helpers.
 - **prisma/schema.prisma** — the single source of truth for the database.
 
@@ -77,7 +77,7 @@ nvm install --lts
 node --version
 ```
 
-## Cloudflare Workers (prepared, not deployed)
+## Cloudflare Workers
 
 The web app is a full-stack Next.js app, so it deploys as one Worker with static assets (`okmr-web`). Do not create a Pages project. `vinext check` reports `next-auth` as incompatible, so the Worker uses the OpenNext adapter already started in this repo.
 
@@ -85,7 +85,19 @@ The Worker is configured as the main script on `workers.dev` only. It has no rou
 
 `npm run web:cf:check` confirms that guard. `npm run web:cf:dry-run` builds and packages without uploading. A real deploy, a remote D1 migration, and a bot deploy each require an explicit `OKMR_ALLOW_*=1` flag. A `workers.dev` URL is public until Worker-scoped Cloudflare Access is enabled; do not turn on account-wide Access.
 
-Secret names for the web Worker are `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `AUTH_SECRET`, and `AUTH_URL`. Optional names are `DISCORD_REQUIRED_ROLE_IDS` and `DISCORD_LEAD_ROLE_IDS`. `CLUB_TIMEZONE` is a plain var. The bot Worker also needs `DISCORD_PUBLIC_KEY`. Do not deploy the bot while the Pi process is using the same bot token.
+Dev-journal files are stored in the `okmr-uploads` Workers KV namespace, bound as `UPLOADS_KV` in both Workers. KV Free allows 1 GB stored, 1,000 writes/day, and 25 MiB per value; writes fail at the quota. There is no R2 binding. A Worker without `UPLOADS_KV` fails closed with “File attachments are disabled on this deployment.” Local Node and the Pi keep saving files under `web/uploads/`.
+
+Publish only on the Workers Free plan, where exhausted request, CPU, log, and D1 quotas fail the operation. The Workers Paid plan bills overages, so it does not meet the zero-incremental-cost condition. Do not enable R2 or any other paid product for this deploy. Workers Free includes 100,000 requests/day and 10 ms CPU per request; D1 Free includes 5 million row reads/day, 100,000 row writes/day, and 5 GB. Workers Logs on Free include 200,000 events/day. Static asset requests are unlimited.
+
+Secret names for the web Worker are `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `AUTH_SECRET`, and `AUTH_URL`. Optional names are `DISCORD_REQUIRED_ROLE_IDS` and `DISCORD_LEAD_ROLE_IDS`. `CLUB_TIMEZONE` is a plain var. Do not deploy the bot while the Pi process is using the same bot token.
+
+To run the bot on Workers (`okmr-bot`):
+
+1. Stop the Node bot process.
+2. In `bot/`, run `npx wrangler secret put <NAME>` for `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, and `DISCORD_PUBLIC_KEY` (optional: `DISCORD_LEAD_ROLE_IDS`).
+3. `OKMR_ALLOW_BOT_DEPLOY=1 npm run bot:cf:deploy`.
+4. In the Discord Developer Portal, set the application's Interactions Endpoint URL to the `okmr-bot` `workers.dev` URL.
+5. `npm run bot:deploy` to register slash commands.
 
 ## Deploy to the Raspberry Pi (Phase 0, step 3–4)
 

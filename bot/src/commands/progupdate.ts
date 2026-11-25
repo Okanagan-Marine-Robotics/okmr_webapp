@@ -1,6 +1,7 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
 import type { Attachment } from "discord.js";
 import { prisma } from "@okmr_webapp/db";
+import { uploadsAreDisabled } from "@okmr_webapp/storage";
 import type { Command } from "../types.js";
 import { resolveTeam, resolveUser } from "../lib/context.js";
 import { formatLocalDateTime } from "../lib/date.js";
@@ -47,12 +48,16 @@ export const progupdate: Command = {
     // Downloading can take a moment; defer so we don't hit the 3s deadline.
     await interaction.deferReply();
 
+    const filesDisabled = uploadsAreDisabled();
     const stored = [];
-    for (const attachment of attachments) {
-      const file = await storeAttachment(attachment);
-      if (file) stored.push(file);
+    let failed = 0;
+    if (!filesDisabled) {
+      for (const attachment of attachments) {
+        const file = await storeAttachment(attachment);
+        if (file) stored.push(file);
+      }
+      failed = attachments.length - stored.length;
     }
-    const failed = attachments.length - stored.length;
 
     await prisma.devLog.create({
       data: {
@@ -78,7 +83,13 @@ export const progupdate: Command = {
         value: stored.map((f) => f.originalName).join("\n"),
       });
     }
-    if (failed > 0) {
+    if (filesDisabled && attachments.length > 0) {
+      embed.addFields({
+        name: "Attachments disabled",
+        value:
+          "File attachments are disabled on this deployment. The update was saved without files.",
+      });
+    } else if (failed > 0) {
       embed.addFields({
         name: "⚠️ Skipped",
         value: `${failed} file(s) were too big (max 25 MB) or failed to download.`,
@@ -86,7 +97,9 @@ export const progupdate: Command = {
     }
 
     await interaction.editReply({
-      content: "Saved to the dev journal — view it with attachments on the web app.",
+      content: filesDisabled
+        ? "Saved to the dev journal. File attachments are disabled on this deployment."
+        : "Saved to the dev journal — view it with attachments on the web app.",
       embeds: [embed],
     });
   },

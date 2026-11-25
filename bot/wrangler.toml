@@ -1,11 +1,11 @@
-# Discord bot Worker. Not deployed by the web prepare step.
-# Do not add routes or custom domains. Do not deploy this while the Raspberry Pi
-# bot is running on the same token: Discord would deliver every command twice.
-# Deploy only with OKMR_ALLOW_BOT_DEPLOY=1 after the Pi process is stopped.
+# Discord bot Worker (HTTP Interactions + Cron Triggers).
+# Do not add routes or custom domains. Only one bot may run on the token: stop
+# any Node bot process first, or Discord delivers every command twice.
+# Deploy with OKMR_ALLOW_BOT_DEPLOY=1.
 name = "okmr-bot"
 account_id = "ac106c3c37d5d9077a632960175f4a52"
 main = "src/worker.ts"
-compatibility_date = "2025-02-01"
+compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = false
@@ -30,7 +30,7 @@ CLUB_TIMEZONE = "America/Vancouver"
 [triggers]
 crons = ["*/5 * * * *"]
 
-# Shared empty D1 database (same binding as okmr-web). Remote migrations are gated.
+# Shared D1 database (same binding as okmr-web). Remote migrations are gated.
 [[d1_databases]]
 binding = "DB"
 database_name = "okmr-db"
@@ -38,8 +38,8 @@ database_id = "92805d40-9fe6-443e-89a4-ffafe0e0c209"
 migrations_dir = "../prisma/migrations"
 migrations_pattern = "../prisma/migrations/*/migration.sql"
 
-# Same R2 bucket name as okmr-web. R2 is not enabled on the account yet; do not
-# create the bucket until that prerequisite is approved.
-[[r2_buckets]]
-binding = "UPLOADS_BUCKET"
-bucket_name = "okmr-uploads"
+# Dev-journal attachments. Workers KV is on the free plan: 1 GB stored,
+# 1,000 writes/day, 25 MiB per value. Writes fail at the quota; nothing bills.
+[[kv_namespaces]]
+binding = "UPLOADS_KV"
+id = "5a172e41ffa64dfe9b02b0b9063a7080"

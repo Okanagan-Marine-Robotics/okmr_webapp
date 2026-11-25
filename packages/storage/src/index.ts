@@ -1,28 +1,18 @@
-// Pluggable blob storage for DevLog attachments (/progupdate).
-// Uses Cloudflare R2 (`env.UPLOADS_BUCKET`) when running on Cloudflare Pages
-// or Workers, and falls back to `web/uploads/` on the local disk during
-// standard local Node.js development.
+// Dev-journal attachment storage.
+// Node (local dev) uses `web/uploads/`. Cloudflare Workers use the
+// `UPLOADS_KV` Workers KV namespace, and fail closed when it is not bound.
 
-export interface R2ObjectBodyLike {
-  readonly body: ReadableStream<Uint8Array>;
-  readonly size: number;
-  readonly httpMetadata?: {
-    contentType?: string;
-  };
-}
-
-export interface R2BucketLike {
+// Subset of the Workers KV namespace API used for uploads.
+export interface KvNamespaceLike {
   put(
     key: string,
-    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null,
-    options?: {
-      httpMetadata?: {
-        contentType?: string;
-        cacheControl?: string;
-      };
-    },
+    value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
+    options?: { metadata?: unknown },
   ): Promise<unknown>;
-  get(key: string): Promise<R2ObjectBodyLike | null>;
+  getWithMetadata<Metadata = unknown>(
+    key: string,
+    options: { type: "stream" },
+  ): Promise<{ value: ReadableStream<Uint8Array> | null; metadata: Metadata | null }>;
 }
 
 export interface StoredUploadObject {
@@ -74,11 +64,15 @@ export function safeExtension(name: string): string {
   return ext ? `.${ext.slice(0, 8)}` : "";
 }
 
-export class R2StorageAdapter implements StorageAdapter {
-  private readonly bucket: R2BucketLike;
+interface KvUploadMetadata {
+  size: number;
+}
 
-  constructor(bucket: R2BucketLike) {
-    this.bucket = bucket;
+export class KvStorageAdapter implements StorageAdapter {
+  private readonly namespace: KvNamespaceLike;
+
+  constructor(namespace: KvNamespaceLike) {
+    this.namespace = namespace;
   }
 
   async putUpload(
@@ -89,22 +83,20 @@ export class R2StorageAdapter implements StorageAdapter {
     if (!SAFE_UPLOAD_NAME.test(storedName)) {
       throw new Error(`Invalid upload name: ${storedName}`);
     }
-    const resolvedType = inferContentType(storedName);
-    await this.bucket.put(storedName, bytes, {
-      httpMetadata: {
-        contentType: resolvedType,
-        cacheControl: "private, no-store",
-      },
-    });
+    const metadata: KvUploadMetadata = { size: bytes.byteLength };
+    await this.namespace.put(storedName, bytes, { metadata });
   }
 
   async getUpload(storedName: string): Promise<StoredUploadObject | null> {
     if (!SAFE_UPLOAD_NAME.test(storedName)) return null;
-    const obj = await this.bucket.get(storedName);
-    if (!obj) return null;
+    const { value, metadata } = await this.namespace.getWithMetadata<KvUploadMetadata>(
+      storedName,
+      { type: "stream" },
+    );
+    if (!value || typeof metadata?.size !== "number") return null;
     return {
-      body: obj.body,
-      size: obj.size,
+      body: value,
+      size: metadata.size,
       contentType: inferContentType(storedName),
     };
   }
@@ -186,42 +178,77 @@ export class LocalFsStorageAdapter implements StorageAdapter {
 
 const CLOUDFLARE_CONTEXT_SYMBOL = Symbol.for("__cloudflare-context__");
 
-const globalForStorage = globalThis as unknown as {
-  __okmrR2Bucket?: R2BucketLike;
-  __okmrStorageAdapter?: StorageAdapter;
-  [CLOUDFLARE_CONTEXT_SYMBOL]?: {
-    env?: {
-      UPLOADS_BUCKET?: R2BucketLike;
-      [key: string]: unknown;
-    };
-  };
-};
+const UPLOADS_DISABLED_MESSAGE = "File attachments are disabled on this deployment.";
 
-export function setR2Bucket(bucket: R2BucketLike | undefined | null): void {
-  if (bucket) {
-    globalForStorage.__okmrR2Bucket = bucket;
-    globalForStorage.__okmrStorageAdapter = new R2StorageAdapter(bucket);
+export class UploadsDisabledError extends Error {
+  readonly code = "uploads_disabled";
+
+  constructor() {
+    super(UPLOADS_DISABLED_MESSAGE);
+    this.name = "UploadsDisabledError";
   }
 }
 
-export function getStorageAdapter(): StorageAdapter {
-  const cfContextBucket = globalForStorage[CLOUDFLARE_CONTEXT_SYMBOL]?.env?.UPLOADS_BUCKET;
-  if (cfContextBucket) {
-    setR2Bucket(cfContextBucket);
+const globalForStorage = globalThis as unknown as {
+  __okmrUploadsKv?: KvNamespaceLike;
+  __okmrKvAdapter?: { namespace: KvNamespaceLike; adapter: KvStorageAdapter };
+  __okmrLocalAdapter?: LocalFsStorageAdapter;
+  [CLOUDFLARE_CONTEXT_SYMBOL]?: { env?: { UPLOADS_KV?: KvNamespaceLike } };
+};
+
+// True inside workerd (deployed Worker or `wrangler`/`opennext` preview).
+// Node `next dev`, `next start`, and the Node bot stay false and use disk storage.
+export function isCloudflareRuntime(): boolean {
+  if (globalForStorage[CLOUDFLARE_CONTEXT_SYMBOL]) return true;
+  if (typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers") {
+    return true;
+  }
+  return typeof globalThis !== "undefined" && "WebSocketPair" in globalThis;
+}
+
+// Explicit binding for Workers that are not OpenNext (the bot Worker).
+export function setUploadsKv(namespace: KvNamespaceLike | undefined | null): void {
+  if (namespace) globalForStorage.__okmrUploadsKv = namespace;
+}
+
+function uploadsKv(): KvNamespaceLike | undefined {
+  return (
+    globalForStorage[CLOUDFLARE_CONTEXT_SYMBOL]?.env?.UPLOADS_KV ??
+    globalForStorage.__okmrUploadsKv
+  );
+}
+
+// On Cloudflare, uploads need the UPLOADS_KV binding and fail closed without it.
+export function uploadsAreDisabled(): boolean {
+  return isCloudflareRuntime() && !uploadsKv();
+}
+
+class UploadsDisabledAdapter implements StorageAdapter {
+  async putUpload(): Promise<void> {
+    throw new UploadsDisabledError();
   }
 
-  if (globalForStorage.__okmrStorageAdapter) {
-    return globalForStorage.__okmrStorageAdapter;
+  async getUpload(): Promise<StoredUploadObject | null> {
+    return null;
   }
-  if (globalForStorage.__okmrR2Bucket) {
-    globalForStorage.__okmrStorageAdapter = new R2StorageAdapter(
-      globalForStorage.__okmrR2Bucket,
-    );
-    return globalForStorage.__okmrStorageAdapter;
+}
+
+const uploadsDisabledAdapter = new UploadsDisabledAdapter();
+
+export function getStorageAdapter(): StorageAdapter {
+  if (isCloudflareRuntime()) {
+    const namespace = uploadsKv();
+    if (!namespace) return uploadsDisabledAdapter;
+    const cached = globalForStorage.__okmrKvAdapter;
+    if (cached?.namespace === namespace) return cached.adapter;
+    const adapter = new KvStorageAdapter(namespace);
+    globalForStorage.__okmrKvAdapter = { namespace, adapter };
+    return adapter;
   }
-  const local = new LocalFsStorageAdapter();
-  globalForStorage.__okmrStorageAdapter = local;
-  return local;
+  if (!globalForStorage.__okmrLocalAdapter) {
+    globalForStorage.__okmrLocalAdapter = new LocalFsStorageAdapter();
+  }
+  return globalForStorage.__okmrLocalAdapter;
 }
 
 export async function putUpload(

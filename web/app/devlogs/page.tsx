@@ -1,20 +1,64 @@
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@okmr_webapp/db";
+import { uploadsAreDisabled } from "@okmr_webapp/storage";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
 import { getBadges } from "../badges";
 import {
   buildAncestorIndex,
   devlogForumSeenKey,
+  forumLabel,
   forumPostsOf,
   groupIdOf,
   inForum,
+  isForumPost,
+  teamSelectGroups,
   teamsById as teamsByIdOf,
 } from "../forums";
+import { inputStyle } from "../formStyles";
+import { clampText, safeInternalPath } from "../security";
+
+// Entries posted from plain text channels have no forum post of their own, so
+// they share one group (and one pill) instead of a heading per category.
+const TEXT_CHANNELS_ID = "text-channels";
+const TEXT_CHANNELS_LABEL = "Text channels";
+
+// Reassign an entry to a forum post. Allowed for its author and for leads.
+async function moveDevLog(id: string, back: string, formData: FormData) {
+  "use server";
+
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Not signed in.");
+
+  const dest = safeInternalPath(back, "/devlogs");
+  const teamId = clampText(formData.get("teamId"), 64);
+  if (typeof id !== "string" || id.length === 0 || id.length > 64 || !teamId)
+    redirect(dest);
+
+  const teams = await prisma.team.findMany({
+    select: { id: true, name: true, parentId: true },
+  });
+  const target = teams.find((t) => t.id === teamId);
+  if (!target || !isForumPost(target, teamsByIdOf(teams))) {
+    redirect(dest);
+  }
+
+  await prisma.devLog.updateMany({
+    where: session.user.isLead ? { id } : { id, authorId: session.user.id },
+    data: { teamId },
+  });
+
+  revalidatePath("/devlogs");
+  redirect(dest);
+}
 
 function formatStamp(date: Date) {
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 const SAFE_RASTER_IMAGE_TYPES = new Set([
@@ -35,6 +79,7 @@ export default async function DevlogsPage({
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/");
+  const attachmentsDisabled = uploadsAreDisabled();
 
   const params = await searchParams;
   const activeForum = params.forum ?? "";
@@ -46,19 +91,46 @@ export default async function DevlogsPage({
   });
   const ancestors = buildAncestorIndex(teams);
   const posts = forumPostsOf(teams);
-  const postsInScope = posts.filter((post) => inForum(post.id, activeForum, ancestors));
+  const postsInScope = posts.filter((post) =>
+    inForum(post.id, activeForum, ancestors),
+  );
 
-  // Channels are forum posts; entries elsewhere (text channels) are hidden, so
-  // the query is always scoped to post ids (narrowed to one when a pill is on).
-  const allowedTeamIds = (activeForum ? postsInScope : posts).map((p) => p.id);
-
-  const logs = await prisma.devLog.findMany({
-    where: { teamId: { in: allowedTeamIds } },
+  // Pills are forum posts, but /devlog and /progupdate also work in plain text
+  // channels. "All" shows every entry; a pill narrows to that post.
+  const postIdSet = new Set(posts.map((p) => p.id));
+  const textOnly = activeForum === TEXT_CHANNELS_ID;
+  // Text-channel entries are picked out in memory: a NOT IN over every post id
+  // would exceed D1's 100 bound parameters once enough posts are synced.
+  const fetched = await prisma.devLog.findMany({
+    where:
+      activeForum && !textOnly
+        ? { teamId: { in: postsInScope.map((p) => p.id) } }
+        : undefined,
     include: { author: true, team: true, attachments: true },
     orderBy: { createdAt: "desc" },
   });
+  const logs = textOnly
+    ? fetched.filter((log) => !postIdSet.has(log.teamId))
+    : fetched;
 
   const teamsById = teamsByIdOf(teams);
+  const moveTargets = teamSelectGroups(teams);
+  const currentUrl = activeForum
+    ? `/devlogs?forum=${encodeURIComponent(activeForum)}`
+    : "/devlogs";
+  // Which channels have any entry at all, whatever the active filter: pills are
+  // only offered for those, so the row isn't a wall of empty channels.
+  const teamIdsWithLogs = new Set(
+    (activeForum
+      ? await prisma.devLog.findMany({
+          select: { teamId: true },
+          distinct: ["teamId"],
+        })
+      : logs
+    ).map((log) => log.teamId),
+  );
+  const hasTextEntries =
+    textOnly || [...teamIdsWithLogs].some((id) => !postIdSet.has(id));
 
   // Group by forum → channel like Tasks, but entries stay newest-first (the
   // query order) within each channel.
@@ -69,8 +141,11 @@ export default async function DevlogsPage({
   >();
 
   for (const log of logs) {
-    const groupId = groupIdOf(log.team);
-    const groupName = teamsById.get(groupId)?.name ?? log.team.name;
+    const isPost = postIdSet.has(log.team.id);
+    const groupId = isPost ? groupIdOf(log.team) : TEXT_CHANNELS_ID;
+    const groupName = isPost
+      ? (forumLabel(groupId, teamsById) ?? log.team.name)
+      : TEXT_CHANNELS_LABEL;
 
     let group = grouped.get(groupId);
     if (!group) {
@@ -82,31 +157,53 @@ export default async function DevlogsPage({
     else group.channels.set(log.team.id, { name: log.team.name, logs: [log] });
   }
 
-  const orderedGroups = [...grouped.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+  // Forums A-Z, then the shared text-channel group last.
+  const orderedGroups = [...grouped.entries()].sort(
+    (a, b) =>
+      Number(a[0] === TEXT_CHANNELS_ID) - Number(b[0] === TEXT_CHANNELS_ID) ||
+      a[1].name.localeCompare(b[1].name),
+  );
 
   const seenKeys = postsInScope.map((post) => devlogForumSeenKey(post.id));
 
   const pills = [
     { href: "/devlogs", label: "All", active: !activeForum },
-    ...posts.map((post) => ({
-      href: `/devlogs?forum=${encodeURIComponent(post.id)}`,
-      label: post.name,
-      active: activeForum === post.id,
-      badge: badges.devlogForums[post.id],
-    })),
+    ...posts
+      .filter((post) => teamIdsWithLogs.has(post.id) || activeForum === post.id)
+      .map((post) => ({
+        href: `/devlogs?forum=${encodeURIComponent(post.id)}`,
+        label: post.name,
+        active: activeForum === post.id,
+        badge: badges.devlogForums[post.id],
+      })),
+    ...(hasTextEntries
+      ? [
+          {
+            href: `/devlogs?forum=${TEXT_CHANNELS_ID}`,
+            label: TEXT_CHANNELS_LABEL,
+            active: textOnly,
+          },
+        ]
+      : []),
   ];
 
   return (
     <main>
       <MarkSeen keys={seenKeys} />
       <h1>Dev journal</h1>
+      {attachmentsDisabled && (
+        <p>File attachments are disabled on this deployment.</p>
+      )}
 
-      {posts.length > 0 && <PillNav pills={pills} />}
+      {pills.length > 1 && <PillNav pills={pills} />}
 
       {logs.length === 0 && (
         <p>
-          No entries yet. Use <code>/devlog</code> for a quick note or <code>/progupdate</code>{" "}
-          for a longer update with files.
+          No entries yet. Use <code>/devlog</code> for a quick note or{" "}
+          <code>/progupdate</code>{" "}
+          {attachmentsDisabled
+            ? "for a longer update."
+            : "for a longer update with files."}
         </p>
       )}
 
@@ -114,7 +211,9 @@ export default async function DevlogsPage({
         const channels = [...group.channels.entries()].sort((a, b) =>
           a[1].name.localeCompare(b[1].name),
         );
-        const showChannelHeadings = !(channels.length === 1 && channels[0][0] === groupId);
+        const showChannelHeadings = !(
+          channels.length === 1 && channels[0][0] === groupId
+        );
 
         return (
           <section key={groupId} style={{ marginBottom: "1.75rem" }}>
@@ -123,7 +222,13 @@ export default async function DevlogsPage({
             {channels.map(([channelId, channel]) => (
               <div key={channelId}>
                 {showChannelHeadings && (
-                  <h3 style={{ fontSize: "0.95rem", margin: "0.6rem 0 0.35rem", color: "#444" }}>
+                  <h3
+                    style={{
+                      fontSize: "0.95rem",
+                      margin: "0.6rem 0 0.35rem",
+                      color: "#444",
+                    }}
+                  >
                     {channel.name}
                   </h3>
                 )}
@@ -137,20 +242,48 @@ export default async function DevlogsPage({
                       marginBottom: "1rem",
                     }}
                   >
-                    <div style={{ color: "#666", fontSize: "0.8rem", marginBottom: "0.2rem" }}>
-                      {log.kind === "update" ? "📔 Update" : "📓 Note"} · {log.author.username} ·{" "}
-                      {formatStamp(log.createdAt)}
+                    <div
+                      style={{
+                        color: "#666",
+                        fontSize: "0.8rem",
+                        marginBottom: "0.2rem",
+                      }}
+                    >
+                      {log.kind === "update" ? "📔 Update" : "📓 Note"} ·{" "}
+                      {log.author.username} · {formatStamp(log.createdAt)}
                     </div>
 
                     {log.title && (
-                      <div style={{ fontWeight: 600, marginBottom: "0.15rem" }}>{log.title}</div>
+                      <div style={{ fontWeight: 600, marginBottom: "0.15rem" }}>
+                        {log.title}
+                      </div>
                     )}
 
-                    <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                    <div
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
                       {log.body}
                     </div>
 
-                    {log.attachments.length > 0 && (
+                    {log.attachments.length > 0 && attachmentsDisabled && (
+                      <p
+                        style={{
+                          marginTop: "0.6rem",
+                          color: "#666",
+                          fontSize: "0.85rem",
+                        }}
+                      >
+                        File attachments are disabled on this deployment:{" "}
+                        {log.attachments
+                          .map((file) => file.originalName)
+                          .join(", ")}
+                      </p>
+                    )}
+
+                    {log.attachments.length > 0 && !attachmentsDisabled && (
                       <div
                         style={{
                           display: "flex",
@@ -162,7 +295,12 @@ export default async function DevlogsPage({
                         {log.attachments.map((file) => {
                           const href = `/uploads/${file.storedName}`;
                           return isImage(file.contentType) ? (
-                            <a key={file.id} href={href} target="_blank" rel="noreferrer noopener">
+                            <a
+                              key={file.id}
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                            >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={href}
@@ -195,6 +333,55 @@ export default async function DevlogsPage({
                         })}
                       </div>
                     )}
+
+                    {moveTargets.length > 0 &&
+                      (session.user.isLead ||
+                        log.authorId === session.user.id) && (
+                        <details
+                          style={{ marginTop: "0.5rem", fontSize: "0.8rem" }}
+                        >
+                          <summary style={{ cursor: "pointer", color: "#666" }}>
+                            Move
+                          </summary>
+                          <form
+                            action={moveDevLog.bind(null, log.id, currentUrl)}
+                            style={{
+                              display: "flex",
+                              gap: "0.4rem",
+                              marginTop: "0.35rem",
+                            }}
+                          >
+                            <select
+                              name="teamId"
+                              required
+                              defaultValue=""
+                              aria-label="Move to channel"
+                              style={inputStyle}
+                            >
+                              <option value="" disabled>
+                                Move to…
+                              </option>
+                              {moveTargets.map((g) => (
+                                <optgroup key={g.label} label={g.label}>
+                                  {g.teams
+                                    .filter((t) => t.id !== log.team.id)
+                                    .map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.name}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                            <button
+                              type="submit"
+                              style={{ ...inputStyle, cursor: "pointer" }}
+                            >
+                              Move
+                            </button>
+                          </form>
+                        </details>
+                      )}
                   </article>
                 ))}
               </div>

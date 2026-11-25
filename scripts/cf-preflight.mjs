@@ -13,6 +13,7 @@ const requireFlag = process.argv.includes("--require")
 
 const ACCOUNT_ID = "ac106c3c37d5d9077a632960175f4a52";
 const D1_ID = "92805d40-9fe6-443e-89a4-ffafe0e0c209";
+const UPLOADS_KV_ID = "5a172e41ffa64dfe9b02b0b9063a7080";
 const FORBIDDEN_WORKER = "okmarinerobotics-com";
 const FORBIDDEN_ZONES = ["okmrwebapp.ca", "okmarinerobotics.com"];
 
@@ -69,10 +70,29 @@ for (const config of configs) {
     failures.push(`${config.file}: preview_urls must be false`);
   }
   if (!source.includes(`database_id = "${D1_ID}"`) || !source.includes('database_name = "okmr-db"')) {
-    failures.push(`${config.file}: D1 binding must stay on the existing empty okmr-db`);
+    failures.push(`${config.file}: D1 binding must stay on okmr-db`);
   }
   if (/^(routes|route|pattern|custom_domain|zone_id|zone_name)\s*=/m.test(source) || /^\[\[routes\]\]/m.test(source)) {
     failures.push(`${config.file}: routes and custom domains are not allowed`);
+  }
+  if (/\[\[r2_buckets\]\]|\br2_buckets\b|UPLOADS_BUCKET/.test(source)) {
+    failures.push(`${config.file}: R2 bindings are not allowed`);
+  }
+  const uploadsKv = source
+    .split(/^\[/m)
+    .filter((block) => block.startsWith("[kv_namespaces]]"))
+    .find((block) => /^binding = "UPLOADS_KV"\s*$/m.test(block));
+  if (!uploadsKv || !new RegExp(`^id = "${UPLOADS_KV_ID}"\\s*$`, "m").test(uploadsKv)) {
+    failures.push(`${config.file}: UPLOADS_KV must bind the okmr-uploads KV namespace`);
+  }
+  if (config.file === "web/wrangler.toml") {
+    const observabilityBlocks = source.match(/\[observability(?:\.[a-z]+)?\][\s\S]*?(?=\n\[|$)/g) ?? [];
+    const webLogsOff =
+      observabilityBlocks.length > 0 &&
+      observabilityBlocks.every((block) => /enabled\s*=\s*false/.test(block) && !/enabled\s*=\s*true/.test(block));
+    if (!webLogsOff) {
+      failures.push(`${config.file}: persistent observability must stay disabled`);
+    }
   }
   for (const zone of FORBIDDEN_ZONES) {
     if (source.includes(zone)) {
@@ -112,7 +132,8 @@ console.log("Cloudflare preflight passed.");
 console.log("- Worker okmr-web on workers.dev only; preview URLs off; no routes");
 console.log("- okmrwebapp.ca and okmarinerobotics.com are not attached");
 console.log("- okmarinerobotics-com is not a target");
-console.log("- D1 binding is the existing empty okmr-db; remote migrations stay gated");
+console.log("- D1 binding is okmr-db; remote migrations stay gated");
+console.log("- No R2 binding; uploads use the okmr-uploads KV namespace");
 console.log("- A workers.dev URL is public until Worker-scoped Access is enabled");
 if (requireFlag) {
   console.log(`- Approval ${requireFlag}=1 is set`);

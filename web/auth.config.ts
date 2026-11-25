@@ -10,6 +10,13 @@ const GUILD_REVERIFY_INTERVAL_MS = 5 * 60 * 1000;
 const GUILD_MAX_STALE_MS = 30 * 60 * 1000;
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
+// Discord's OAuth authorization server metadata:
+// https://discord.com/.well-known/oauth-authorization-server
+// issuer is https://discord.com and authorization_response_iss_parameter_supported is true.
+// @auth/core 0.41.2 otherwise fills issuer with https://authjs.dev, and
+// oauth4webapi 3.8.6 rejects Discord's iss on the callback.
+export const DISCORD_OAUTH_ISSUER = "https://discord.com";
+
 export async function revalidateGuildJwt(token: JWT): Promise<JWT | null> {
   // Reject any pre-fence legacy JWT that lacks a verified Discord snowflake or DB user id.
   if (
@@ -56,6 +63,7 @@ export function buildBaseAuthConfig(): NextAuthConfig {
       Discord({
         clientId: getRuntimeEnv("DISCORD_CLIENT_ID"),
         clientSecret: getRuntimeEnv("DISCORD_CLIENT_SECRET"),
+        issuer: DISCORD_OAUTH_ISSUER,
         authorization: {
           params: {
             scope: "identify",

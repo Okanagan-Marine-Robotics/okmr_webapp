@@ -7,7 +7,7 @@ import { getBadges } from "../badges";
 import { MarkSeen } from "../markSeen";
 import { PillNav } from "../pills";
 import { postToChannel } from "../discord";
-import { buildAncestorIndex, forumPostsOf, inForum } from "../forums";
+import { buildAncestorIndex, forumLabel, forumPostsOf, inForum } from "../forums";
 import { safeInternalPath } from "../security";
 
 // Build a /forms URL keeping whichever of the two filters aren't being changed.
@@ -151,7 +151,7 @@ export default async function FormsPage({
 
   const typeFilter = activeType ? { type: activeType } : {};
 
-  const [open, resolved] = await Promise.all([
+  const [open, resolved, ticketTeams] = await Promise.all([
     prisma.ticket.findMany({
       where: { status: "open", ...typeFilter, ...teamFilter },
       include: { requester: true, team: true },
@@ -163,7 +163,14 @@ export default async function FormsPage({
       orderBy: { resolvedAt: "desc" },
       take: 10,
     }),
+    // Which channels have any request at all, whatever the active filters:
+    // channel pills are only offered for those.
+    prisma.ticket.findMany({ select: { teamId: true }, distinct: ["teamId"] }),
   ]);
+  const teamIdsWithTickets = new Set(ticketTeams.map((t) => t.teamId));
+  const pillPosts = posts.filter(
+    (post) => teamIdsWithTickets.has(post.id) || activeForum === post.id,
+  );
 
   const teamsById = new Map(teams.map((team) => [team.id, team]));
 
@@ -179,7 +186,7 @@ export default async function FormsPage({
     const team = ticket.team;
     const groupId = team ? (team.parentId ?? team.id) : NO_TEAM;
     const groupName = team
-      ? (teamsById.get(team.parentId ?? team.id)?.name ?? team.name)
+      ? (forumLabel(team.parentId ?? team.id, teamsById) ?? team.name)
       : "No channel";
     const channelId = team?.id ?? NO_TEAM;
     const channelName = team?.name ?? "No channel";
@@ -225,11 +232,11 @@ export default async function FormsPage({
         }))}
       />
 
-      {posts.length > 0 && (
+      {pillPosts.length > 0 && (
         <PillNav
           pills={[
             { href: formsUrl(activeType, ""), label: "All channels", active: !activeForum },
-            ...posts.map((post) => ({
+            ...pillPosts.map((post) => ({
               href: formsUrl(activeType, post.id),
               label: post.name,
               active: activeForum === post.id,

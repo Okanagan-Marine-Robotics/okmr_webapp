@@ -62,9 +62,25 @@ interface SqlResultSet {
   lastInsertId?: string;
 }
 
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+
 function cleanArg(arg: unknown): unknown {
   if (arg === undefined) return null;
   if (typeof arg === "boolean") return arg ? 1 : 0;
+  // The Worker uses Prisma's wasm query engine, which passes SQLite integer
+  // parameters — including the OFFSET 0 on findMany — as bigint. D1 bind()
+  // rejects that with `D1_TYPE_ERROR: Type 'bigint' not supported`. Safe
+  // integers become numbers, matching the values D1 accepts. Anything that
+  // would round is refused before bind.
+  if (typeof arg === "bigint") {
+    if (arg > MAX_SAFE_BIGINT || arg < MIN_SAFE_BIGINT) {
+      throw new Error(
+        `D1 cannot bind bigint ${arg.toString()}: value is outside the safe integer range`,
+      );
+    }
+    return Number(arg);
+  }
   if (arg instanceof Date) return arg.toISOString();
   return arg;
 }

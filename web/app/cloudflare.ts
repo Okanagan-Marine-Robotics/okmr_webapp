@@ -1,17 +1,17 @@
-// Helper to bind Cloudflare D1 (`DB`) and R2 (`UPLOADS_BUCKET`) in Next.js
+// Helper to bind Cloudflare D1 (`DB`) and Workers KV (`UPLOADS_KV`) in Next.js
 // Server Components, Server Actions, and Route Handlers when deployed on
 // Cloudflare Workers / Pages.
 // Note: `@okmr_webapp/db` and `@okmr_webapp/storage` also auto-detect the
 // OpenNext `Symbol.for("__cloudflare-context__")` global automatically.
 
 import { setD1Database, type D1DatabaseLike } from "@okmr_webapp/db";
-import { setR2Bucket, type R2BucketLike } from "@okmr_webapp/storage";
+import { setUploadsKv, type KvNamespaceLike } from "@okmr_webapp/storage";
 
 const CLOUDFLARE_CONTEXT_SYMBOL = Symbol.for("__cloudflare-context__");
 
 export interface WebCloudflareEnv {
   DB?: D1DatabaseLike;
-  UPLOADS_BUCKET?: R2BucketLike;
+  UPLOADS_KV?: KvNamespaceLike;
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_BOT_TOKEN?: string;
@@ -36,7 +36,5 @@ export function initCloudflareBindings(explicitEnv?: WebCloudflareEnv): void {
   if (env.DB) {
     setD1Database(env.DB);
   }
-  if (env.UPLOADS_BUCKET) {
-    setR2Bucket(env.UPLOADS_BUCKET);
-  }
+  setUploadsKv(env.UPLOADS_KV);
 }

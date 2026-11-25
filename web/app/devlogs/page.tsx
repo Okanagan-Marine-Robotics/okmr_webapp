@@ -109,19 +109,28 @@ export default async function DevlogsPage({
     include: { author: true, team: true, attachments: true },
     orderBy: { createdAt: "desc" },
   });
-  const logs = textOnly ? fetched.filter((log) => !postIdSet.has(log.teamId)) : fetched;
+  const logs = textOnly
+    ? fetched.filter((log) => !postIdSet.has(log.teamId))
+    : fetched;
 
   const teamsById = teamsByIdOf(teams);
   const moveTargets = teamSelectGroups(teams);
   const currentUrl = activeForum
     ? `/devlogs?forum=${encodeURIComponent(activeForum)}`
     : "/devlogs";
-  const hasTextEntries =
-    textOnly ||
+  // Which channels have any entry at all, whatever the active filter: pills are
+  // only offered for those, so the row isn't a wall of empty channels.
+  const teamIdsWithLogs = new Set(
     (activeForum
-      ? await prisma.devLog.findMany({ select: { teamId: true }, distinct: ["teamId"] })
+      ? await prisma.devLog.findMany({
+          select: { teamId: true },
+          distinct: ["teamId"],
+        })
       : logs
-    ).some((log) => !postIdSet.has(log.teamId));
+    ).map((log) => log.teamId),
+  );
+  const hasTextEntries =
+    textOnly || [...teamIdsWithLogs].some((id) => !postIdSet.has(id));
 
   // Group by forum → channel like Tasks, but entries stay newest-first (the
   // query order) within each channel.
@@ -159,12 +168,14 @@ export default async function DevlogsPage({
 
   const pills = [
     { href: "/devlogs", label: "All", active: !activeForum },
-    ...posts.map((post) => ({
-      href: `/devlogs?forum=${encodeURIComponent(post.id)}`,
-      label: post.name,
-      active: activeForum === post.id,
-      badge: badges.devlogForums[post.id],
-    })),
+    ...posts
+      .filter((post) => teamIdsWithLogs.has(post.id) || activeForum === post.id)
+      .map((post) => ({
+        href: `/devlogs?forum=${encodeURIComponent(post.id)}`,
+        label: post.name,
+        active: activeForum === post.id,
+        badge: badges.devlogForums[post.id],
+      })),
     ...(hasTextEntries
       ? [
           {
